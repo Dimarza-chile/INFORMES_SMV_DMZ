@@ -24,13 +24,18 @@
     <h1 id="informeTitulo">Informe Nº 3</h1>
     <p class="informe-sub" id="informeSub"></p>
     <p class="eyebrow"><span class="conn-dot" id="connDot"></span><span id="connTxt">Conectando…</span></p>
+    <a id="linkCurvaS" class="btn-curva-link" href="https://dimarza-chile.github.io/Parada-Agosto-SMV-Cent-Sulfuros/" target="_blank" rel="noopener">📊 Ver Curva S (app principal)</a>
   </header>
 
   <main>
 
-    <!-- Selector de turno: fecha + Día/Noche, siempre visible arriba -->
+    <!-- Selector de turno: etapa + fecha + Día/Noche, siempre visible arriba -->
     <section class="card turno-selector">
       <label class="card-label">Turno que estás registrando</label>
+      <div class="turno-toggle" id="etapaToggle">
+        <button type="button" data-etapa="Preparativos">🔧 Preparativos</button>
+        <button type="button" data-etapa="Parada">🏗 Parada</button>
+      </div>
       <div class="turno-selector-row">
         <input type="date" id="fechaInput">
         <div class="turno-toggle" id="turnoToggle">
@@ -39,25 +44,16 @@
         </div>
       </div>
       <p class="turno-hint" id="turnoHint"></p>
-      <label class="field-label">Hora de bloqueo (opcional — se agrega como viñeta al guardar)</label>
-      <input type="time" id="horaBloqueoInput" class="field-input">
     </section>
 
-    <!-- Formulario: registrar avance de este turno (texto + fotos) -->
+    <!-- Cabecera del turno: lo estándar de todo turno, se guarda una sola vez -->
     <section class="card">
-      <h2 class="section-title">Registrar avance de este turno</h2>
-
-      <label class="field-label">Actividad relacionada (opcional)</label>
-      <select id="otSelect" class="field-input"></select>
-
-      <label class="field-label">Comentarios — una idea por línea, se listan como en el informe</label>
-      <textarea id="bulletsInput" class="field-input" rows="4" placeholder="Se llevó a cabo la charla de seguridad.&#10;Se recepcionaron placas metálicas para reparación de ductos.&#10;Se realizó el traslado de herramientas hacia el punto de trabajo."></textarea>
-
-      <label class="field-label">Fotos del avance</label>
-      <div id="fotoRowsWrap"></div>
-      <button type="button" id="btnAddFoto" class="btn-secundario">+ Agregar otra foto</button>
-
-      <button type="button" id="btnGuardarBitacora" class="btn-principal">Guardar avance de turno</button>
+      <h2 class="section-title">Cabecera del turno</h2>
+      <p class="section-hint">Esto se guarda una sola vez por turno y aparece siempre primero en el informe.</p>
+      <div id="cabeceraItems"></div>
+      <label class="field-label">Hora de bloqueo</label>
+      <input type="time" id="horaBloqueoInput" class="field-input">
+      <button type="button" id="btnGuardarCabecera" class="btn-principal">Guardar cabecera de este turno</button>
     </section>
 
     <!-- Qué OT componen este informe: elegible, no fijo por código -->
@@ -73,13 +69,14 @@
       </div>
     </section>
 
-    <!-- Actividades y subactividades del Gantt YA incluidas, con su % de avance -->
+    <!-- Actividades de esta área: SIEMPRE activas (la realidad no sigue el Gantt al pie de la letra).
+         Cada tarjeta trae su % (slider de 10 en 10) y su propio botón para agregar comentario/fotos. -->
     <section class="card">
       <div class="picker-header">
-        <h2 class="section-title">Actividades de esta área (Gantt)</h2>
+        <h2 class="section-title">Actividades de esta área</h2>
         <button type="button" id="btnAddEmergente" class="btn-secundario-mini">⚡ + Emergente</button>
       </div>
-      <p class="section-hint">El % que cargues aquí también actualiza la Curva S de la app principal.</p>
+      <p class="section-hint">El % que cargues aquí también actualiza la Curva S de la app principal. Toca "Agregar comentario / fotos" en la actividad que corresponda.</p>
       <div id="actividadesWrap"></div>
     </section>
 
