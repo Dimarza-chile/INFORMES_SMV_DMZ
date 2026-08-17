@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Informe Nº 3 — Bitácora de Turno</title>
+<meta name="theme-color" content="#1FA0A5">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="logos-row">
+      <img src="./assets/logo-centinela.jpg" alt="Centinela — Antofagasta Minerals">
+      <div class="divider"></div>
+      <img src="./assets/logo-dimarza.png" alt="Dimarza Chile SPA">
+    </div>
+    <div class="wp-linea">
+      <span class="wp-tag">WORK PACK</span>
+      <span class="wp-nom" id="paradaTitle">Cargando…</span>
+    </div>
+    <p class="wp-rango" id="paradaSub"></p>
+    <h1 id="informeTitulo">Informe Nº 3</h1>
+    <p class="informe-sub" id="informeSub"></p>
+    <p class="eyebrow"><span class="conn-dot" id="connDot"></span><span id="connTxt">Conectando…</span></p>
+  </header>
+
+  <main>
+
+    <!-- Selector de turno: fecha + Día/Noche, siempre visible arriba -->
+    <section class="card turno-selector">
+      <label class="card-label">Turno que estás registrando</label>
+      <div class="turno-selector-row">
+        <input type="date" id="fechaInput">
+        <div class="turno-toggle" id="turnoToggle">
+          <button type="button" data-tipo="Día">☀️ Día</button>
+          <button type="button" data-tipo="Noche">🌙 Noche</button>
+        </div>
+      </div>
+      <p class="turno-hint" id="turnoHint"></p>
+      <label class="field-label">Hora de bloqueo (opcional — se agrega como viñeta al guardar)</label>
+      <input type="time" id="horaBloqueoInput" class="field-input">
+    </section>
+
+    <!-- Formulario: registrar avance de este turno (texto + fotos) -->
+    <section class="card">
+      <h2 class="section-title">Registrar avance de este turno</h2>
+
+      <label class="field-label">Actividad relacionada (opcional)</label>
+      <select id="otSelect" class="field-input"></select>
+
+      <label class="field-label">Comentarios — una idea por línea, se listan como en el informe</label>
+      <textarea id="bulletsInput" class="field-input" rows="4" placeholder="Se llevó a cabo la charla de seguridad.&#10;Se recepcionaron placas metálicas para reparación de ductos.&#10;Se realizó el traslado de herramientas hacia el punto de trabajo."></textarea>
+
+      <label class="field-label">Fotos del avance</label>
+      <div id="fotoRowsWrap"></div>
+      <button type="button" id="btnAddFoto" class="btn-secundario">+ Agregar otra foto</button>
+
+      <button type="button" id="btnGuardarBitacora" class="btn-principal">Guardar avance de turno</button>
+    </section>
+
+    <!-- Qué OT componen este informe: elegible, no fijo por código -->
+    <section class="card">
+      <div class="picker-header">
+        <h2 class="section-title">Actividades que componen este informe</h2>
+        <button type="button" id="btnTogglePicker" class="btn-secundario-mini">✏️ Editar selección</button>
+      </div>
+      <p class="section-hint" id="resumenSeleccion">Cargando…</p>
+      <div id="pickerWrap" style="display:none;">
+        <div id="pickerList"></div>
+        <button type="button" id="btnGuardarSeleccion" class="btn-principal">Guardar actividades incluidas</button>
+      </div>
+    </section>
+
+    <!-- Actividades y subactividades del Gantt YA incluidas, con su % de avance -->
+    <section class="card">
+      <div class="picker-header">
+        <h2 class="section-title">Actividades de esta área (Gantt)</h2>
+        <button type="button" id="btnAddEmergente" class="btn-secundario-mini">⚡ + Emergente</button>
+      </div>
+      <p class="section-hint">El % que cargues aquí también actualiza la Curva S de la app principal.</p>
+      <div id="actividadesWrap"></div>
+    </section>
+
+    <!-- Bitácora acumulada, con el mismo formato del informe final -->
+    <section class="card">
+      <h2 class="section-title">Bitácora del informe</h2>
+      <div id="bitacoraFeed"></div>
+    </section>
+
+  </main>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- Modal: nueva actividad emergente -->
+<div class="sheet-backdrop" id="emergBackdrop">
+  <div class="sheet">
+    <h2>Nueva actividad emergente</h2>
+    <p class="meta">Solo el nombre. Se agrega a la lista de actividades de este informe y también queda visible en la Curva S de la app principal.</p>
+
+    <label class="field-label">Nombre de la actividad</label>
+    <input type="text" id="emergNombre" class="field-input" placeholder="Ej: Reparar fuga en línea 6&quot; bomba 324PP806">
+
+    <label class="field-label">HH estimadas (opcional, para la curva)</label>
+    <input type="number" id="emergHH" class="field-input" placeholder="0" min="0" step="0.5">
+
+    <div class="sheet-actions">
+      <button type="button" class="btn-secundario" id="emergCancel">Cancelar</button>
+      <button type="button" class="btn-principal" id="emergSave">Crear actividad emergente</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK (compat) — mismo proyecto que curva-s-semiva -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+<script src="./firebase-config.js"></script>
+<script src="./data.js"></script>
+<script src="./catalogo-ots.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
