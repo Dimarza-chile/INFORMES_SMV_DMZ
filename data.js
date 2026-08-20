@@ -41,3 +41,7 @@ const INFORME_DATA = {
 // "Editar actividades incluidas" en la propia página. Solo se usa si Firestore todavía
 // no tiene una selección guardada para este informe.
 const DEFAULT_OT_NUMS = [4895739, 4811513, 4887362, 4892569, 4892570];
+
+// Link de la carpeta Drive con certificados de aparejos (eslingas, grilletes, tecles, etc.).
+// Vacío por ahora — el botón de la portada queda deshabilitado hasta tener la URL real.
+const DRIVE_CERTIFICADOS_URL = "";

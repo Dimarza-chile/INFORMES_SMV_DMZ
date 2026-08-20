@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Informe Nº 3 — Bitácora de Turno</title>
+<title>Informe Nº 3 — Registro de Avance</title>
 <meta name="theme-color" content="#1FA0A5">
 <link rel="stylesheet" href="./styles.css">
 </head>
@@ -11,10 +11,17 @@
 <div class="app">
 
   <header class="top">
-    <div class="logos-row">
-      <img src="./assets/logo-centinela.jpg" alt="Centinela — Antofagasta Minerals">
-      <div class="divider"></div>
-      <img src="./assets/logo-dimarza.png" alt="Dimarza Chile SPA">
+    <div class="header-row">
+      <div class="logos-row">
+        <img src="./assets/logo-centinela.jpg" alt="Centinela — Antofagasta Minerals">
+        <div class="divider"></div>
+        <img src="./assets/logo-dimarza.png" alt="Dimarza Chile SPA">
+      </div>
+      <div class="header-actions">
+        <a id="linkDrive" class="btn-header-mini" href="#" target="_blank" rel="noopener" title="Certificados de aparejos">📁 Certificados aparejos</a>
+        <button type="button" id="btnAddPets" class="btn-header-mini">📄 + PETS</button>
+        <a id="linkInforme" class="btn-header-mini btn-header-principal" href="./informe.html" target="_blank" rel="noopener">📋 Ver informe</a>
+      </div>
     </div>
     <div class="wp-linea">
       <span class="wp-tag">WORK PACK</span>
@@ -24,12 +31,10 @@
     <h1 id="informeTitulo">Informe Nº 3</h1>
     <p class="informe-sub" id="informeSub"></p>
     <p class="eyebrow"><span class="conn-dot" id="connDot"></span><span id="connTxt">Conectando…</span></p>
-    <a id="linkCurvaS" class="btn-curva-link" href="https://dimarza-chile.github.io/Parada-Agosto-SMV-Cent-Sulfuros/" target="_blank" rel="noopener">📊 Ver Curva S (app principal)</a>
   </header>
 
-  <main>
-
-    <!-- Selector de turno: etapa + fecha + Día/Noche, siempre visible arriba -->
+  <div class="top-cards">
+    <!-- Selector de turno: etapa + fecha + Día/Noche, siempre visible arriba, fuera de cualquier actividad -->
     <section class="card turno-selector">
       <label class="card-label">Turno que estás registrando</label>
       <div class="turno-toggle" id="etapaToggle">
@@ -49,7 +54,7 @@
     <!-- Cabecera del turno: lo estándar de todo turno, se guarda una sola vez -->
     <section class="card">
       <h2 class="section-title">Cabecera del turno</h2>
-      <p class="section-hint">Esto se guarda una sola vez por turno y aparece siempre primero en el informe.</p>
+      <p class="section-hint" id="cabeceraHint">Esto se guarda una sola vez por turno y aparece siempre primero en el informe.</p>
       <div id="cabeceraItems"></div>
       <label class="field-label">Hora de bloqueo</label>
       <input type="time" id="horaBloqueoInput" class="field-input">
@@ -68,24 +73,32 @@
         <button type="button" id="btnGuardarSeleccion" class="btn-principal">Guardar actividades incluidas</button>
       </div>
     </section>
+  </div>
 
-    <!-- Actividades de esta área: SIEMPRE activas (la realidad no sigue el Gantt al pie de la letra).
-         Cada tarjeta trae su % (slider de 10 en 10) y su propio botón para agregar comentario/fotos. -->
-    <section class="card">
-      <div class="picker-header">
+  <main class="panels">
+    <!-- Panel izquierdo: lista de actividades -->
+    <section class="panel panel-lista" id="panelLista">
+      <div class="panel-header">
         <h2 class="section-title">Actividades de esta área</h2>
         <button type="button" id="btnAddEmergente" class="btn-secundario-mini">⚡ + Emergente</button>
       </div>
-      <p class="section-hint">El % que cargues aquí también actualiza la Curva S de la app principal. Toca "Agregar comentario / fotos" en la actividad que corresponda.</p>
-      <div id="actividadesWrap"></div>
+      <div id="listaOts"></div>
     </section>
 
-    <!-- Bitácora acumulada, con el mismo formato del informe final -->
-    <section class="card">
-      <h2 class="section-title">Bitácora del informe</h2>
-      <div id="bitacoraFeed"></div>
+    <!-- Panel central: detalle de la actividad elegida -->
+    <section class="panel panel-detalle" id="panelDetalle">
+      <div id="detalleEmpty" class="detalle-empty">
+        <div class="detalle-empty-icon">👈</div>
+        <p>Elige una actividad de la lista para ver su detalle, cargar % y agregar comentarios o fotos.</p>
+      </div>
+      <div id="detalleContent" style="display:none;"></div>
     </section>
 
+    <!-- Panel derecho: Curva S -->
+    <section class="panel panel-curva" id="panelCurva">
+      <h2 class="section-title">Curva S</h2>
+      <div id="curvaSWrap"></div>
+    </section>
   </main>
 
   <div class="toast" id="toast"></div>
@@ -106,6 +119,28 @@
     <div class="sheet-actions">
       <button type="button" class="btn-secundario" id="emergCancel">Cancelar</button>
       <button type="button" class="btn-principal" id="emergSave">Crear actividad emergente</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: administrar PETS -->
+<div class="sheet-backdrop" id="petsBackdrop">
+  <div class="sheet">
+    <h2>Nuevo PETS</h2>
+    <p class="meta">Sube el PDF y elige a qué actividades de este informe aplica. Quedará disponible para verlo desde el detalle de cada una.</p>
+
+    <label class="field-label">Nombre del PETS</label>
+    <input type="text" id="petsNombre" class="field-input" placeholder="Ej: PETS Cambio de válvulas de cuchilla">
+
+    <label class="field-label">Archivo PDF</label>
+    <input type="file" id="petsArchivo" accept="application/pdf" class="field-input">
+
+    <label class="field-label">Actividades a las que aplica</label>
+    <div id="petsOtsList" class="picker-area-group"></div>
+
+    <div class="sheet-actions">
+      <button type="button" class="btn-secundario" id="petsCancel">Cancelar</button>
+      <button type="button" class="btn-principal" id="petsSave">Guardar PETS</button>
     </div>
   </div>
 </div>
