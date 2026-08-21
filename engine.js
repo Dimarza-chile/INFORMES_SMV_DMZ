@@ -3163,7 +3163,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 'comentario-actividad');
 
   safeInit(() => {
-    document.getElementById('btnAddPets').addEventListener('click', abrirModalPets);
     document.getElementById('petsCancel').addEventListener('click', () => document.getElementById('petsBackdrop').classList.remove('open'));
     document.getElementById('petsBackdrop').addEventListener('click', (e) => {
       if (e.target.id === 'petsBackdrop') document.getElementById('petsBackdrop').classList.remove('open');
@@ -3654,8 +3653,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnAct) {
       btnAct.addEventListener('click', async () => {
         btnAct.disabled = true; const txt = btnAct.textContent; btnAct.textContent = 'Generando…';
-        try { await generateInformeActividadesPdf(state.filtroSupervisor); }
-        catch (e) { console.error(e); showToast('No se pudo generar el informe'); }
+        try { await generateInformeActividadesImagen(state.filtroSupervisor); }
+        catch (e) { console.error(e); showToast('No se pudo generar la imagen'); }
         btnAct.disabled = false; btnAct.textContent = txt;
       });
     }
@@ -3855,6 +3854,85 @@ function dibujarPctEnBarra(doc, x0, x1, barY, barH, real) {
     doc.text(texto, x1 + 1.2, barY + barH / 2 + 1.1);
   }
   doc.setTextColor(0, 0, 0);
+}
+
+// Genera una imagen PNG nítida (no PDF) del resumen de actividades — pensada para
+// compartir directo por WhatsApp/Telegram, no para imprimir. Usa el mismo dato (OTs
+// filtradas por el par de supervisores) que el PDF, pero como una tarjeta compacta:
+// una fila por actividad con su barra de % y estado.
+async function generateInformeActividadesImagen(supervisorFiltro) {
+  const ots = supervisorFiltro
+    ? allOts().filter((o) => otCoincideConParSupervisor(o, supervisorFiltro))
+    : allOts();
+  const tIdxFinal = SEED_DATA.turnoLabels.length - 1;
+  const parTxt = supervisorFiltro
+    ? `${primerNombre(supervisorFiltro.a)} y ${primerNombre(supervisorFiltro.b)}`
+    : 'Todos los supervisores';
+
+  const filasHtml = ots.map((ot) => {
+    const pct = Math.round(otProgressAt(ot, tIdxFinal) * 100);
+    const estado = getOtEstado(ot.otNum);
+    const cancelada = estado.startsWith('Cancelada');
+    const supA = getOtSupervisor(ot.otNum, 'A');
+    const supB = getOtSupervisor(ot.otNum, 'B');
+    const supTxt = [supA, supB].filter(Boolean).join(' / ');
+    const colorBarra = cancelada ? '#B0B0AA' : (ot.tipo === 'Emergente' ? '#E8862C' : (pct >= 100 ? '#1FA971' : '#1FA0A5'));
+    return `
+      <div style="display:flex; align-items:center; gap:14px; padding:11px 0; border-bottom:1px solid #ECECE8;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:13.5px; font-weight:700; color:#1A1A2E; ${cancelada ? 'text-decoration:line-through; opacity:.55;' : ''}">OT ${ot.otNum} — ${escBit(ot.descripcion)}</div>
+          <div style="font-size:11px; color:#8A8A90; margin-top:3px;">${escBit(ot.area || '')}${supTxt ? ' · ' + escBit(supTxt) : ''}</div>
+        </div>
+        <div style="width:130px; flex:none;">
+          <div style="background:#EDEDEA; border-radius:100px; height:8px; overflow:hidden;">
+            <div style="width:${pct}%; height:100%; background:${colorBarra}; border-radius:100px;"></div>
+          </div>
+        </div>
+        <div style="width:44px; flex:none; text-align:right; font-size:13px; font-weight:800; color:#1A1A2E; font-variant-numeric:tabular-nums;">${pct}%</div>
+      </div>`;
+  }).join('');
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed; left:-10000px; top:0; width:720px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:30px 32px;';
+  wrap.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+      <div style="width:7px; height:36px; background:#1FA0A5; border-radius:3px; flex:none;"></div>
+      <div style="min-width:0;">
+        <div style="font-size:10px; letter-spacing:.14em; font-weight:800; color:#1FA0A5; text-transform:uppercase;">Resumen de actividades</div>
+        <div style="font-size:19px; font-weight:800; color:#1A1A2E; line-height:1.25;">${escBit(SEED_DATA.paradaNombre)}</div>
+      </div>
+    </div>
+    <div style="font-size:12.5px; color:#4A4A55; margin-bottom:2px;">Supervisores: <b style="color:#1A1A2E;">${escBit(parTxt)}</b></div>
+    <div style="font-size:11px; color:#9A9A95; margin-bottom:16px;">${ots.length} actividad(es) · Generado ${new Date().toLocaleString('es-CL')}</div>
+    <div>${filasHtml || '<p style="font-size:12.5px; color:#9A9A95;">Sin actividades para este filtro.</p>'}</div>
+    <div style="margin-top:20px; padding-top:12px; border-top:1px solid #ECECE8; font-size:9.5px; color:#B0B0AA; text-align:center;">Generado automáticamente — DIMARZA</div>
+  `;
+  document.body.appendChild(wrap);
+
+  try {
+    const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('No se pudo generar la imagen');
+    const nombreArchivo = `resumen-actividades-${new Date().toISOString().slice(0, 10)}.png`;
+    const file = new File([blob], nombreArchivo, { type: 'image/png' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Resumen de actividades', text: parTxt });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; // el usuario cerró el menú de compartir
+        // si compartir falla por otra razón, cae al descargar
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombreArchivo;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } finally {
+    wrap.remove();
+  }
 }
 
 async function generateInformeActividadesPdf(supervisorFiltro) {

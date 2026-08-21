@@ -44,9 +44,11 @@
   .btn-toggle-header{
     position:absolute; top:12px; right:14px; z-index:6;
     width:28px; height:28px; border-radius:50%; border:none;
-    background:#fff; color:#1A1A2E; display:flex; align-items:center; justify-content:center;
+    background:#fff; color:#1A1A2E; display:none; align-items:center; justify-content:center;
     cursor:pointer; box-shadow:0 1px 5px rgba(0,0,0,.3); padding:0;
   }
+  /* Solo tiene sentido en celular: en escritorio el header no compite por espacio vertical */
+  @media (max-width:1023px){ .btn-toggle-header{ display:flex; } }
   .btn-toggle-header svg{ transition: transform .32s ease; }
   header.top.header-collapsed .btn-toggle-header svg{ transform:rotate(180deg); }
   #headerCollapsible{
@@ -457,7 +459,6 @@
           <button id="btnSupervisorArrow" class="btn-informe-arrow" type="button" title="Elegir supervisor" aria-haspopup="listbox" aria-expanded="false">▾</button>
           <div class="supervisor-dropdown" id="supervisorDropdown" role="listbox"></div>
         </div>
-        <button id="btnAddPets" class="btn-informe" type="button">📄 + PETS</button>
       </div>
       <p class="eyebrow"><span class="conn-dot" id="connDot"></span><span id="connTxt">Conectando…</span></p>
       <div class="turno-actual-badge" id="turnoActualBadge"></div>
@@ -689,6 +690,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 <script src="./firebase-config.js"></script>
 <script src="./seed-data.js"></script>
