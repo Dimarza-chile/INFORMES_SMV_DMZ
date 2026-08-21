@@ -944,14 +944,19 @@ function buildDrawingXmlWord(rId, cx, cy, docPrId) {
   return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docPrId}" name="Imagen ${docPrId}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture ${docPrId}"/><pic:cNvPicPr><a:picLocks noChangeAspect="1" noChangeArrowheads="1"/></pic:cNvPicPr></pic:nvPicPr><pic:blipFill rotWithShape="1"><a:blip r:embed="${rId}"/><a:stretch/></pic:blipFill><pic:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:ln><a:noFill/></a:ln></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
 
-// ---- Bloque "REGISTRO FOTOGRÁFICO": clon exacto de la tabla de 2 columnas que
-// ya usa la plantilla para sus fotos de ejemplo (fila FECHA con gridSpan=2,
-// fila "IMAGEN N / IMAGEN N+1" con fondo verde, fila con las fotos —celda de
-// 9cm x 7cm, que es justo el máximo que se pidió—, y fila "Descripción:" con
-// fondo gris). Las fotos van EN ESTA tabla, no mezcladas con los comentarios
-// de "ACTIVIDADES REALIZADAS", que es donde estaban mal puestas antes. ----
+// ---- Bloque "REGISTRO FOTOGRÁFICO": clon EXACTO de cómo la plantilla real
+// arma cada par de fotos — mapeado directo desde el documento real, no
+// inventado. Cada par vive en su PROPIA tabla chica de 2 columnas (FECHA con
+// gridSpan=2, "IMAGEN N / IMAGEN N+1" en verde, la foto en su celda de 9x7cm,
+// "Descripción:" en gris) y esa tabla va, a su vez, DENTRO de una fila de una
+// tabla contenedora más grande — la fila trae 2 párrafos vacíos ANTES de la
+// tabla chica, que son el espacio de separación entre un par y el siguiente
+// (el mismo "aire" que se ve en la plantilla real entre pares). Cada par
+// nuevo se agrega como una fila hermana más de esa tabla contenedora, justo
+// después del último par que ya existe — nunca dentro de "ACTIVIDADES
+// REALIZADAS", que es donde estaban mal puestas las fotos antes. ----
 const REGISTRO_FOTOS_ANCLA = 'REGISTRO FOTOGR';
-const REGISTRO_FOTOS_TC_ANCHO = 5102; // twips — mitad de la tabla (10204), ≈9cm
+const REGISTRO_FOTOS_TC_ANCHO = 5102; // twips — mitad de la tabla del par (10204), ≈9cm
 
 function buildFilaFechaRegistroWord(fechaTexto) {
   const pid = randParaIdWord();
@@ -976,21 +981,29 @@ function buildFilaDescripcionRegistroWord(descA, descB) {
   return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="1138"/><w:jc w:val="center"/></w:trPr>${celda(descA)}${celda(descB)}</w:tr>`;
 }
 
-// Fila vacía de separación entre un par de fotos y el siguiente — solo un
-// párrafo en blanco a tamaño 15pt (w:sz se mide en medios punto, 30 = 15pt),
-// para que quede el mismo "aire" que se ve entre pares en la plantilla.
-function buildFilaEspaciadorFotosWord() {
+// La tabla CHICA completa de un par (FECHA + IMAGEN N/N+1 + foto + descripción)
+// — clon exacto de tblPr/tblGrid que ya usa la plantilla para esto.
+function buildTablaParWord(fechaTexto, numA, numB, drawingXmlA, drawingXmlB, descA, descB) {
+  return `<w:tbl><w:tblPr><w:tblStyle w:val="Tablaconcuadrcula"/><w:tblW w:w="10204" w:type="dxa"/><w:jc w:val="center"/><w:tblLayout w:type="fixed"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr><w:tblGrid><w:gridCol w:w="${REGISTRO_FOTOS_TC_ANCHO}"/><w:gridCol w:w="${REGISTRO_FOTOS_TC_ANCHO}"/></w:tblGrid>${buildFilaFechaRegistroWord(fechaTexto)}${buildFilaImagenHeaderWord(numA, numB)}${buildFilaFotoWord(drawingXmlA, drawingXmlB)}${buildFilaDescripcionRegistroWord(descA, descB)}</w:tbl>`;
+}
+
+// La fila EXTERNA que envuelve la tabla chica de un par — clon exacto de la
+// fila contenedora real: 2 párrafos en blanco (el espacio entre pares) y
+// después la tabla chica. Esta fila se agrega como hermana de las que ya
+// existen, dentro de la tabla grande que las contiene a todas.
+function buildFilaExternaParWord(tablaParXml) {
   const pid = randParaIdWord();
-  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="80"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10204" w:type="dxa"/><w:gridSpan w:val="2"/></w:tcPr><w:p><w:pPr><w:rPr><w:sz w:val="30"/></w:rPr></w:pPr></w:p></w:tc></w:tr>`;
+  const blank = () => `<w:p w14:paraId="${randParaIdWord()}" w14:textId="${randParaIdWord()}"><w:pPr><w:rPr><w:u w:val="single"/></w:rPr></w:pPr></w:p>`;
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10704" w:type="dxa"/><w:gridSpan w:val="2"/></w:tcPr>${blank()}${blank()}${tablaParXml}</w:tc></w:tr>`;
 }
 
 // Recibe la lista de fotos ya incrustadas (en orden, cada una con su fecha) y
-// arma el bloque completo: FECHA + IMAGEN/foto/descripción por CADA PAR (la
-// fecha se repite en cada par, igual que en la plantilla real — no se agrupan
-// varios pares bajo una sola fecha), con una fila de separación entre pares.
-// Si sobra una foto suelta al final de un día, esa fila queda con la segunda
-// celda vacía (igual que en la plantilla). No se pairean fotos de fechas
-// distintas en una misma fila.
+// arma una fila EXTERNA por cada PAR (cada una con sus 2 párrafos en blanco
+// de separación + su propia tabla chica FECHA/IMAGEN/foto/descripción) — la
+// fecha se repite en cada par, igual que en la plantilla real; no se agrupan
+// varios pares bajo una sola fecha. Si sobra una foto suelta al final de un
+// día, esa tabla queda con la segunda celda vacía (igual que en la
+// plantilla). No se pairean fotos de fechas distintas en un mismo par.
 function buildBloqueRegistroFotosWord(fotosEmbebidas) {
   let out = '';
   let contador = 0;
@@ -1000,14 +1013,15 @@ function buildBloqueRegistroFotosWord(fotosEmbebidas) {
     const siguiente = fotosEmbebidas[i + 1];
     const b = (siguiente && siguiente.fechaTexto === a.fechaTexto) ? siguiente : null;
 
-    out += buildFilaFechaRegistroWord(a.fechaTexto);
-    out += buildFilaImagenHeaderWord(contador + 1, b ? contador + 2 : null);
-    out += buildFilaFotoWord(a.drawingXml, b ? b.drawingXml : null);
-    out += buildFilaDescripcionRegistroWord(a.descripcion, b ? b.descripcion : null);
+    const tablaPar = buildTablaParWord(
+      a.fechaTexto, contador + 1, b ? contador + 2 : null,
+      a.drawingXml, b ? b.drawingXml : null,
+      a.descripcion, b ? b.descripcion : null
+    );
+    out += buildFilaExternaParWord(tablaPar);
+
     contador += b ? 2 : 1;
     i += b ? 2 : 1;
-
-    if (i < fotosEmbebidas.length) out += buildFilaEspaciadorFotosWord();
   }
   return out;
 }
@@ -1104,25 +1118,27 @@ async function generateInformeWordReal(informe) {
   if (fotosEmbebidas.length) {
     const fotosAnclaIdx = xml.indexOf(REGISTRO_FOTOS_ANCLA, busquedaFotosDesde);
     if (fotosAnclaIdx === -1) throw new Error('No se encontró la sección "REGISTRO FOTOGRÁFICO" (después de las actividades) en la plantilla — puede que la hayan editado.');
-    const miniTblEndIdx = xml.indexOf('</w:tbl>', fotosAnclaIdx);
-    if (miniTblEndIdx === -1) throw new Error('No se pudo ubicar el cierre del encabezado "REGISTRO FOTOGRÁFICO".');
-    const tablaFotosIdx = xml.indexOf('<w:tbl>', miniTblEndIdx);
-    if (tablaFotosIdx === -1) throw new Error('No se pudo ubicar la tabla de fotos dentro de "REGISTRO FOTOGRÁFICO".');
-    let tablaFotosEndIdx = xml.indexOf('</w:tbl>', tablaFotosIdx);
-    if (tablaFotosEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de fotos.');
 
-    // Sin layout="fixed" explícito, Word recalcula el ancho de columnas según
-    // el contenido y las celdas terminan con un ancho distinto al declarado
-    // (9.38cm en vez de 9cm) — se fuerza el ancho exacto de 9x7cm pedido.
-    const tblPrEndIdx = xml.indexOf('</w:tblPr>', tablaFotosIdx);
-    if (tblPrEndIdx !== -1 && tblPrEndIdx < tablaFotosEndIdx && !xml.slice(tablaFotosIdx, tblPrEndIdx).includes('tblLayout')) {
-      const insercion = '<w:tblLayout w:type="fixed"/>';
-      xml = xml.slice(0, tblPrEndIdx) + insercion + xml.slice(tblPrEndIdx);
-      tablaFotosEndIdx += insercion.length;
+    // La estructura real (mapeada del documento): cada par de fotos vive en su
+    // propia tabla chica, y esa tabla va dentro de una fila de una tabla más
+    // grande que las contiene a todas. Para agregar pares nuevos como filas
+    // hermanas del último par que ya existe, sin depender de encontrar el
+    // cierre de esa tabla grande (que envuelve mucho más contenido), se ubica
+    // el ÚLTIMO "IMAGEN " ya existente en esta sección → el cierre de SU tabla
+    // chica → el cierre de la fila que la envuelve. Justo ahí se insertan las
+    // filas nuevas.
+    const ultimoImagenIdx = xml.lastIndexOf('IMAGEN ');
+    if (ultimoImagenIdx === -1 || ultimoImagenIdx < fotosAnclaIdx) {
+      throw new Error('No se encontró ningún par de fotos existente en la plantilla para usar como referencia de formato.');
     }
+    const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx);
+    if (ultimaTablaParEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la última tabla de fotos existente.');
+    const ultimaFilaExternaEndIdx = xml.indexOf('</w:tr>', ultimaTablaParEndIdx);
+    if (ultimaFilaExternaEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la fila que envuelve la última tabla de fotos.');
+    const puntoInsercion = ultimaFilaExternaEndIdx + '</w:tr>'.length;
 
     const fotosRowsXml = buildBloqueRegistroFotosWord(fotosEmbebidas);
-    xml = xml.slice(0, tablaFotosEndIdx) + fotosRowsXml + xml.slice(tablaFotosEndIdx);
+    xml = xml.slice(0, puntoInsercion) + fotosRowsXml + xml.slice(puntoInsercion);
   }
 
   // Verificación antes de entregar el archivo: si el XML quedó mal formado
