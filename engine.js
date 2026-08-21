@@ -877,12 +877,12 @@ function buildFilaTurnoWord(turnoLabel, items, continuaMismoDia) {
     ? '<w:tcBorders><w:top w:val="single" w:sz="12" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>'
     : INFORME_TC_BORDERS;
   const header = `<w:p><w:pPr><w:spacing w:before="120"/><w:ind w:right="115"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:iCs/><w:sz w:val="20"/><w:u w:val="single"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:iCs/><w:sz w:val="20"/><w:u w:val="single"/></w:rPr><w:t>${escXmlWord(turnoLabel)}</w:t></w:r></w:p>`;
-  const cuerpo = items.map(({ titulo, bullets, fotosXml }) => {
+  const cuerpo = items.map(({ titulo, bullets }) => {
     const tituloPara = `<w:p><w:pPr><w:spacing w:before="80"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(tituloSinEquipo(titulo))}</w:t></w:r></w:p>`;
     const listaBullets = (bullets.length ? bullets : ['(sin comentarios registrados)']).map((b) =>
       `<w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr><w:spacing w:line="276" w:lineRule="auto"/><w:ind w:left="1170" w:hanging="709"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(b)}</w:t></w:r></w:p>`
     ).join('');
-    return tituloPara + listaBullets + (fotosXml || '');
+    return tituloPara + listaBullets;
   }).join('');
   return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="482"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10206" w:type="dxa"/>${tcBorders}<w:vAlign w:val="center"/></w:tcPr>${header}${cuerpo}</w:tc></w:tr>`;
 }
@@ -932,6 +932,64 @@ function buildDrawingXmlWord(rId, cx, cy, docPrId) {
   return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docPrId}" name="Imagen ${docPrId}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture ${docPrId}"/><pic:cNvPicPr><a:picLocks noChangeAspect="1" noChangeArrowheads="1"/></pic:cNvPicPr></pic:nvPicPr><pic:blipFill rotWithShape="1"><a:blip r:embed="${rId}"/><a:stretch/></pic:blipFill><pic:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:ln><a:noFill/></a:ln></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
 
+// ---- Bloque "REGISTRO FOTOGRÁFICO": clon exacto de la tabla de 2 columnas que
+// ya usa la plantilla para sus fotos de ejemplo (fila FECHA con gridSpan=2,
+// fila "IMAGEN N / IMAGEN N+1" con fondo verde, fila con las fotos —celda de
+// 9cm x 7cm, que es justo el máximo que se pidió—, y fila "Descripción:" con
+// fondo gris). Las fotos van EN ESTA tabla, no mezcladas con los comentarios
+// de "ACTIVIDADES REALIZADAS", que es donde estaban mal puestas antes. ----
+const REGISTRO_FOTOS_ANCLA = 'REGISTRO FOTOGR';
+const REGISTRO_FOTOS_TC_ANCHO = 5102; // twips — mitad de la tabla (10204), ≈9cm
+
+function buildFilaFechaRegistroWord(fechaTexto) {
+  const pid = randParaIdWord();
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="283"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10204" w:type="dxa"/><w:gridSpan w:val="2"/><w:shd w:val="clear" w:color="auto" w:fill="F2DBDB"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic"/><w:b/><w:color w:val="000000" w:themeColor="text1"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic"/><w:b/><w:color w:val="000000" w:themeColor="text1"/></w:rPr><w:t xml:space="preserve">FECHA: ${escXmlWord(fechaTexto)}</w:t></w:r></w:p></w:tc></w:tr>`;
+}
+
+function buildFilaImagenHeaderWord(numA, numB) {
+  const pid = randParaIdWord();
+  const celda = (num) => `<w:tc><w:tcPr><w:tcW w:w="${REGISTRO_FOTOS_TC_ANCHO}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="92D050"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic"/><w:b/><w:color w:val="000000" w:themeColor="text1"/></w:rPr></w:pPr>${num ? `<w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic"/><w:b/><w:color w:val="000000" w:themeColor="text1"/></w:rPr><w:t xml:space="preserve">IMAGEN ${num}</w:t></w:r>` : ''}</w:p></w:tc>`;
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="283"/><w:jc w:val="center"/></w:trPr>${celda(numA)}${celda(numB)}</w:tr>`;
+}
+
+function buildFilaFotoWord(drawingXmlA, drawingXmlB) {
+  const pid = randParaIdWord();
+  const celda = (drawingXml) => `<w:tc><w:tcPr><w:tcW w:w="${REGISTRO_FOTOS_TC_ANCHO}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="Contenido"/><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic"/></w:rPr></w:pPr>${drawingXml ? `<w:r>${drawingXml}</w:r>` : ''}</w:p></w:tc>`;
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="3969"/><w:jc w:val="center"/></w:trPr>${celda(drawingXmlA)}${celda(drawingXmlB)}</w:tr>`;
+}
+
+function buildFilaDescripcionRegistroWord(descA, descB) {
+  const pid = randParaIdWord();
+  const celda = (desc) => `<w:tc><w:tcPr><w:tcW w:w="${REGISTRO_FOTOS_TC_ANCHO}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="D9CECE"/></w:tcPr><w:p><w:pPr><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic"/><w:b/><w:bCs/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic"/><w:b/><w:bCs/></w:rPr><w:t>Descripción:</w:t></w:r></w:p><w:p><w:pPr><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic"/><w:bCs/></w:rPr></w:pPr>${desc ? `<w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic"/><w:bCs/></w:rPr><w:t xml:space="preserve">${escXmlWord(desc)}</w:t></w:r>` : ''}</w:p></w:tc>`;
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="1138"/><w:jc w:val="center"/></w:trPr>${celda(descA)}${celda(descB)}</w:tr>`;
+}
+
+// Recibe la lista de fotos ya incrustadas (en orden, cada una con su fecha) y
+// arma el bloque completo: una fila FECHA cuando cambia el día, y de a pares
+// las filas IMAGEN/foto/descripción — si sobra una foto suelta al final de un
+// día, esa fila queda con la segunda celda vacía (igual que en la plantilla).
+function buildBloqueRegistroFotosWord(fotosEmbebidas) {
+  let out = '';
+  let contador = 0;
+  let i = 0;
+  let fechaActual = null;
+  while (i < fotosEmbebidas.length) {
+    const foto = fotosEmbebidas[i];
+    if (foto.fechaTexto !== fechaActual) {
+      out += buildFilaFechaRegistroWord(foto.fechaTexto);
+      fechaActual = foto.fechaTexto;
+    }
+    const a = foto;
+    const b = fotosEmbebidas[i + 1] && fotosEmbebidas[i + 1].fechaTexto === fechaActual ? fotosEmbebidas[i + 1] : null;
+    out += buildFilaImagenHeaderWord(contador + 1, b ? contador + 2 : null);
+    out += buildFilaFotoWord(a.drawingXml, b ? b.drawingXml : null);
+    out += buildFilaDescripcionRegistroWord(a.descripcion, b ? b.descripcion : null);
+    contador += b ? 2 : 1;
+    i += b ? 2 : 1;
+  }
+  return out;
+}
+
 async function generateInformeWordReal(informe) {
   if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
   const resp = await fetch('./assets/plantilla-informe.docx');
@@ -957,35 +1015,7 @@ async function generateInformeWordReal(informe) {
   });
   entradas.sort((a, b) => (a.entry.turnoIdx ?? 0) - (b.entry.turnoIdx ?? 0) || (a.entry.createdAt || 0) - (b.entry.createdAt || 0));
 
-  // ---- Fotos: se incrustan ANTES de armar las filas, porque hay que bajarlas
-  // y registrar su relación (rId) en el zip de forma asíncrona. ----
-  const relsPath = 'word/_rels/document.xml.rels';
-  let relsXml = zip.file(relsPath).asText();
-  const rIdsUsados = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
-  let nextRid = (rIdsUsados.length ? Math.max(...rIdsUsados) : 0) + 1;
-  let nuevasRelsXml = '';
-  let contadorImagen = 0;
-
-  for (const { entry } of entradas) {
-    entry.__fotosXmlWord = '';
-    if (!entry.fotos || !entry.fotos.length) continue;
-    for (const foto of entry.fotos) {
-      const preparada = await prepararFotoParaWord(foto.url);
-      if (!preparada) continue;
-      contadorImagen++;
-      const nombreArchivo = `autoFoto${Date.now()}_${contadorImagen}.jpeg`;
-      const rId = `rId${nextRid++}`;
-      zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
-      nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
-      const drawingXml = buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 900000 + contadorImagen);
-      const descEsc = escXmlWord(foto.descripcion || '');
-      entry.__fotosXmlWord += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="60"/></w:pPr><w:r>${drawingXml}</w:r></w:p>`;
-      if (descEsc) {
-        entry.__fotosXmlWord += `<w:p><w:pPr><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:i/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:i/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">${descEsc}</w:t></w:r></w:p>`;
-      }
-    }
-  }
-
+  // ---- 1) Texto: arma las filas de la tabla "ACTIVIDADES REALIZADAS..." ----
   let rowsXml = '';
   let lastFecha = null, lastTurnoKey = null, buffer = [], bufferEsSegundoTurnoDelDia = false;
   const flush = () => {
@@ -1008,7 +1038,6 @@ async function generateInformeWordReal(informe) {
       turnoLabel: entry.turnoTipo === 'Día' ? 'TURNO DÍA' : 'TURNO NOCHE',
       titulo: ot.manual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`,
       bullets: entry.bullets || [],
-      fotosXml: entry.__fotosXmlWord,
     });
   });
   flush();
@@ -1016,6 +1045,52 @@ async function generateInformeWordReal(informe) {
   if (!rowsXml) throw new Error('Esta actividad todavía no tiene comentarios cargados — agrega al menos uno antes de generar el Word.');
 
   xml = xml.slice(0, tblEndIdx) + rowsXml + xml.slice(tblEndIdx);
+  // Punto a partir del cual buscar "REGISTRO FOTOGRÁFICO" — hay más de una
+  // sección con ese mismo título en la plantilla (una antes, de preparativos);
+  // la que corresponde a esto es la que viene DESPUÉS de las actividades de parada.
+  const busquedaFotosDesde = tblEndIdx + rowsXml.length;
+
+  // ---- 2) Fotos: se incrustan en la tabla "REGISTRO FOTOGRÁFICO" (2 columnas,
+  // celdas de 9x7cm), NO mezcladas con los comentarios de arriba. ----
+  const relsPath = 'word/_rels/document.xml.rels';
+  let relsXml = zip.file(relsPath).asText();
+  const rIdsUsados = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
+  let nextRid = (rIdsUsados.length ? Math.max(...rIdsUsados) : 0) + 1;
+  let nuevasRelsXml = '';
+  let contadorImagen = 0;
+  const fotosEmbebidas = [];
+
+  for (const { entry } of entradas) {
+    if (!entry.fotos || !entry.fotos.length) continue;
+    const fechaTexto = fechaDDMMYYYY(entry.fecha);
+    for (const foto of entry.fotos) {
+      const preparada = await prepararFotoParaWord(foto.url);
+      if (!preparada) continue;
+      contadorImagen++;
+      const nombreArchivo = `autoFoto${Date.now()}_${contadorImagen}.jpeg`;
+      const rId = `rId${nextRid++}`;
+      zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+      nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+      fotosEmbebidas.push({
+        fechaTexto,
+        drawingXml: buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 900000 + contadorImagen),
+        descripcion: foto.descripcion || '',
+      });
+    }
+  }
+
+  if (fotosEmbebidas.length) {
+    const fotosAnclaIdx = xml.indexOf(REGISTRO_FOTOS_ANCLA, busquedaFotosDesde);
+    if (fotosAnclaIdx === -1) throw new Error('No se encontró la sección "REGISTRO FOTOGRÁFICO" (después de las actividades) en la plantilla — puede que la hayan editado.');
+    const miniTblEndIdx = xml.indexOf('</w:tbl>', fotosAnclaIdx);
+    if (miniTblEndIdx === -1) throw new Error('No se pudo ubicar el cierre del encabezado "REGISTRO FOTOGRÁFICO".');
+    const tablaFotosIdx = xml.indexOf('<w:tbl>', miniTblEndIdx);
+    if (tablaFotosIdx === -1) throw new Error('No se pudo ubicar la tabla de fotos dentro de "REGISTRO FOTOGRÁFICO".');
+    const tablaFotosEndIdx = xml.indexOf('</w:tbl>', tablaFotosIdx);
+    if (tablaFotosEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de fotos.');
+    const fotosRowsXml = buildBloqueRegistroFotosWord(fotosEmbebidas);
+    xml = xml.slice(0, tablaFotosEndIdx) + fotosRowsXml + xml.slice(tablaFotosEndIdx);
+  }
 
   // Verificación antes de entregar el archivo: si el XML quedó mal formado
   // (una etiqueta sin cerrar, algo así), mejor fallar acá con un error claro
