@@ -891,35 +891,47 @@ const INFORME_EMU_POR_CM = 360000;
 const INFORME_FOTO_MAX_ANCHO_CM = 9;
 const INFORME_FOTO_MAX_ALTO_CM = 7;
 
-// Baja la foto (URL de Firebase Storage), la reduce a un tamaño razonable para
-// imprimir y la vuelve a codificar como JPEG — así siempre se sabe el formato
-// que se está incrustando, sin importar si el original era HEIC/PNG/lo que sea.
-// Devuelve null (en vez de lanzar) si la foto no se pudo procesar, para que una
-// foto rota no tumbe el informe completo.
+// Baja la foto (URL de Firebase Storage), la RECORTA al centro para que su
+// proporción sea exactamente 9:7 (así no quedan márgenes/franjas vacías dentro
+// de la celda de 9x7cm — la foto la llena completa), la reduce a un tamaño
+// razonable para imprimir y la vuelve a codificar como JPEG — así siempre se
+// sabe el formato que se está incrustando, sin importar si el original era
+// HEIC/PNG/lo que sea. Devuelve null (en vez de lanzar) si la foto no se pudo
+// procesar, para que una foto rota no tumbe el informe completo.
 async function prepararFotoParaWord(url) {
   try {
     const r = await fetch(url);
     const blob = await r.blob();
     const bitmap = await createImageBitmap(blob);
+
+    const targetRatio = INFORME_FOTO_MAX_ANCHO_CM / INFORME_FOTO_MAX_ALTO_CM;
+    let sx = 0, sy = 0, sw = bitmap.width, sh = bitmap.height;
+    const srcRatio = sw / sh;
+    if (srcRatio > targetRatio) {
+      sw = Math.round(sh * targetRatio);
+      sx = Math.round((bitmap.width - sw) / 2);
+    } else if (srcRatio < targetRatio) {
+      sh = Math.round(sw / targetRatio);
+      sy = Math.round((bitmap.height - sh) / 2);
+    }
+
     const maxDim = 1600;
-    let w = bitmap.width, h = bitmap.height;
-    if (w > maxDim || h > maxDim) {
-      const s = maxDim / Math.max(w, h);
-      w = Math.round(w * s); h = Math.round(h * s);
+    let outW = sw, outH = sh;
+    if (outW > maxDim || outH > maxDim) {
+      const s = maxDim / Math.max(outW, outH);
+      outW = Math.round(outW * s); outH = Math.round(outH * s);
     }
     const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    canvas.width = outW; canvas.height = outH;
+    canvas.getContext('2d').drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
     const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
     const bytes = new Uint8Array(await outBlob.arrayBuffer());
 
-    let cx = INFORME_FOTO_MAX_ANCHO_CM * INFORME_EMU_POR_CM;
-    let cy = cx * (h / w);
-    if (cy > INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM) {
-      cy = INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM;
-      cx = cy * (w / h);
-    }
-    return { bytes, cx: Math.round(cx), cy: Math.round(cy) };
+    // Siempre exactamente 9x7cm — la foto ya viene recortada a esa proporción,
+    // así que no hace falta (ni conviene) recalcular en base a su tamaño real.
+    const cx = Math.round(INFORME_FOTO_MAX_ANCHO_CM * INFORME_EMU_POR_CM);
+    const cy = Math.round(INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM);
+    return { bytes, cx, cy };
   } catch (e) {
     console.error('No se pudo preparar una foto para el Word:', e);
     return null;
@@ -964,28 +976,38 @@ function buildFilaDescripcionRegistroWord(descA, descB) {
   return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="1138"/><w:jc w:val="center"/></w:trPr>${celda(descA)}${celda(descB)}</w:tr>`;
 }
 
+// Fila vacía de separación entre un par de fotos y el siguiente — solo un
+// párrafo en blanco a tamaño 15pt (w:sz se mide en medios punto, 30 = 15pt),
+// para que quede el mismo "aire" que se ve entre pares en la plantilla.
+function buildFilaEspaciadorFotosWord() {
+  const pid = randParaIdWord();
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="80"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10204" w:type="dxa"/><w:gridSpan w:val="2"/></w:tcPr><w:p><w:pPr><w:rPr><w:sz w:val="30"/></w:rPr></w:pPr></w:p></w:tc></w:tr>`;
+}
+
 // Recibe la lista de fotos ya incrustadas (en orden, cada una con su fecha) y
-// arma el bloque completo: una fila FECHA cuando cambia el día, y de a pares
-// las filas IMAGEN/foto/descripción — si sobra una foto suelta al final de un
-// día, esa fila queda con la segunda celda vacía (igual que en la plantilla).
+// arma el bloque completo: FECHA + IMAGEN/foto/descripción por CADA PAR (la
+// fecha se repite en cada par, igual que en la plantilla real — no se agrupan
+// varios pares bajo una sola fecha), con una fila de separación entre pares.
+// Si sobra una foto suelta al final de un día, esa fila queda con la segunda
+// celda vacía (igual que en la plantilla). No se pairean fotos de fechas
+// distintas en una misma fila.
 function buildBloqueRegistroFotosWord(fotosEmbebidas) {
   let out = '';
   let contador = 0;
   let i = 0;
-  let fechaActual = null;
   while (i < fotosEmbebidas.length) {
-    const foto = fotosEmbebidas[i];
-    if (foto.fechaTexto !== fechaActual) {
-      out += buildFilaFechaRegistroWord(foto.fechaTexto);
-      fechaActual = foto.fechaTexto;
-    }
-    const a = foto;
-    const b = fotosEmbebidas[i + 1] && fotosEmbebidas[i + 1].fechaTexto === fechaActual ? fotosEmbebidas[i + 1] : null;
+    const a = fotosEmbebidas[i];
+    const siguiente = fotosEmbebidas[i + 1];
+    const b = (siguiente && siguiente.fechaTexto === a.fechaTexto) ? siguiente : null;
+
+    out += buildFilaFechaRegistroWord(a.fechaTexto);
     out += buildFilaImagenHeaderWord(contador + 1, b ? contador + 2 : null);
     out += buildFilaFotoWord(a.drawingXml, b ? b.drawingXml : null);
     out += buildFilaDescripcionRegistroWord(a.descripcion, b ? b.descripcion : null);
     contador += b ? 2 : 1;
     i += b ? 2 : 1;
+
+    if (i < fotosEmbebidas.length) out += buildFilaEspaciadorFotosWord();
   }
   return out;
 }
@@ -1086,8 +1108,19 @@ async function generateInformeWordReal(informe) {
     if (miniTblEndIdx === -1) throw new Error('No se pudo ubicar el cierre del encabezado "REGISTRO FOTOGRÁFICO".');
     const tablaFotosIdx = xml.indexOf('<w:tbl>', miniTblEndIdx);
     if (tablaFotosIdx === -1) throw new Error('No se pudo ubicar la tabla de fotos dentro de "REGISTRO FOTOGRÁFICO".');
-    const tablaFotosEndIdx = xml.indexOf('</w:tbl>', tablaFotosIdx);
+    let tablaFotosEndIdx = xml.indexOf('</w:tbl>', tablaFotosIdx);
     if (tablaFotosEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de fotos.');
+
+    // Sin layout="fixed" explícito, Word recalcula el ancho de columnas según
+    // el contenido y las celdas terminan con un ancho distinto al declarado
+    // (9.38cm en vez de 9cm) — se fuerza el ancho exacto de 9x7cm pedido.
+    const tblPrEndIdx = xml.indexOf('</w:tblPr>', tablaFotosIdx);
+    if (tblPrEndIdx !== -1 && tblPrEndIdx < tablaFotosEndIdx && !xml.slice(tablaFotosIdx, tblPrEndIdx).includes('tblLayout')) {
+      const insercion = '<w:tblLayout w:type="fixed"/>';
+      xml = xml.slice(0, tblPrEndIdx) + insercion + xml.slice(tblPrEndIdx);
+      tablaFotosEndIdx += insercion.length;
+    }
+
     const fotosRowsXml = buildBloqueRegistroFotosWord(fotosEmbebidas);
     xml = xml.slice(0, tablaFotosEndIdx) + fotosRowsXml + xml.slice(tablaFotosEndIdx);
   }
