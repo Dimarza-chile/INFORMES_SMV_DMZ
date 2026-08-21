@@ -1,5 +1,5 @@
-// Misma cuenta Firebase y misma parada que la app principal curva-s-semiva.
-// Así el % de avance que se cargue aquí sigue alimentando la Curva S de esa app.
+// Configuración de Firebase — proyecto curva-s-semiva (misma parada que la app principal
+// Parada-Agosto-SMV-Cent-Sulfuros, para que el avance cargado acá siga la misma Curva S).
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyCd3FBL76StKFnEMwH31IiTqn9-Vjwan-0",
   authDomain: "curva-s-semiva.firebaseapp.com",
@@ -11,6 +11,6 @@ const FIREBASE_CONFIG = {
 
 const PARADA_ID = "parada_fcrm_agosto2026";
 
-// Identificador de este informe — separa su bitácora de la de otros informes futuros
-// que se construyan con el mismo patrón (Informe 1, 2, 4...) sobre la misma parada.
-const INFORME_ID = "informe3_jameson_fallback";
+// Link de la carpeta Drive con certificados de aparejos (eslingas, grilletes, tecles, etc.).
+// Vacío por ahora — el botón de la portada queda deshabilitado hasta tener la URL real.
+const DRIVE_CERTIFICADOS_URL = "";

@@ -42,6 +42,8 @@ function initFirebase() {
     listenPolines();
     listenPolinesEmergentes();
     listenFotosActividad();
+    listenBitacora();
+    listenPetsDinamicos();
     setConn(true);
   } catch (e) {
     console.error('Firebase no configurado todavía', e);
@@ -673,9 +675,9 @@ function openSheet(otNum, nombre) {
   document.getElementById('pctDisplay').textContent = slider.value + '%';
 
   populateTurnoOverride(tIdx, live.avance);
-  renderComponentesSection();
-  ensureFotosActividadSection();
-  renderFotosActividadSection(otNum);
+  renderPetsBlock(otNum);
+  resetComentarioForm();
+  renderComentarioFeed(otNum);
   renderGanttActividad(otNum);
   poblarSupervisoresPanel(otNum);
   document.body.classList.remove('polines-abierto');
@@ -697,21 +699,92 @@ function petsDownloadUrl(rawUrl) {
 // El PETS vive en Google Drive del usuario, no en Firebase/GitHub — PETS_LINKS (pets-links.js)
 // es solo un mapa estatico OT -> URL que se completa a mano. Si la OT no tiene link cargado
 // todavia, se muestra un aviso en vez de un boton roto.
+// Además del mapa estático PETS_LINKS (arriba), un administrador puede subir un PETS en PDF
+// directamente desde la app (botón "+ PETS" del header) y elegir a qué actividades aplica —
+// sin necesidad de editar código ni redesplegar. Ambas fuentes se muestran juntas.
+function petsCollection() { return state.db.collection('paradas').doc(PARADA_ID).collection('pets'); }
+state.petsDinamicos = [];
+let petsPendingOts = [];
+
+function listenPetsDinamicos() {
+  petsCollection().onSnapshot((snap) => {
+    state.petsDinamicos = [];
+    snap.forEach((doc) => state.petsDinamicos.push({ id: doc.id, ...doc.data() }));
+    if (sheetCtx) renderPetsBlock(sheetCtx.otNum);
+  }, (err) => console.error('pets error:', err));
+}
+
 function renderPetsBlock(otNum) {
   const block = document.getElementById('petsBlock');
-  const link = document.getElementById('petsLink');
+  const list = document.getElementById('petsLinksList');
   const sinLink = document.getElementById('petsSinLink');
   if (!block) return;
-  const raw = (typeof PETS_LINKS !== 'undefined') ? PETS_LINKS[otNum] : null;
   block.style.display = 'block';
-  if (raw) {
-    link.style.display = 'inline-flex';
-    link.href = petsDownloadUrl(raw);
-    sinLink.style.display = 'none';
-  } else {
-    link.style.display = 'none';
+
+  const enlaces = [];
+  const raw = (typeof PETS_LINKS !== 'undefined') ? PETS_LINKS[otNum] : null;
+  if (raw) enlaces.push({ nombre: 'PETS', url: petsDownloadUrl(raw) });
+  state.petsDinamicos.filter((p) => (p.otNums || []).includes(String(otNum))).forEach((p) => {
+    enlaces.push({ nombre: p.nombre, url: p.url });
+  });
+
+  if (!enlaces.length) {
+    list.innerHTML = '';
     sinLink.style.display = 'block';
+    return;
   }
+  sinLink.style.display = 'none';
+  list.innerHTML = enlaces.map((e) =>
+    `<a href="${e.url}" target="_blank" rel="noopener" class="btn-pets">📄 ${e.nombre}</a>`
+  ).join('');
+}
+
+function abrirModalPets() {
+  document.getElementById('petsNombre').value = '';
+  document.getElementById('petsArchivo').value = '';
+  petsPendingOts = [];
+  const wrap = document.getElementById('petsOtsList');
+  const areas = [...new Set(allOts().map((o) => o.area))];
+  wrap.innerHTML = areas.map((area) => `
+    <div style="font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--brand); margin:8px 0 4px;">${area}</div>
+    ${allOts().filter((o) => o.area === area).map((ot) => `
+      <label style="display:flex; align-items:flex-start; gap:8px; padding:6px 2px; border-bottom:1px solid var(--line); cursor:pointer;">
+        <input type="checkbox" class="pets-ot-check" data-ot="${ot.otNum}" style="width:18px; height:18px; margin-top:1px; flex:none; accent-color:var(--brand);">
+        <span style="font-size:12.5px; color:var(--ink); line-height:1.4;">${ot.manual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`}</span>
+      </label>`).join('')}
+  `).join('');
+  wrap.querySelectorAll('.pets-ot-check').forEach((chk) => {
+    chk.addEventListener('change', () => {
+      const v = chk.dataset.ot;
+      if (chk.checked) petsPendingOts.push(v);
+      else petsPendingOts = petsPendingOts.filter((x) => x !== v);
+    });
+  });
+  document.getElementById('petsBackdrop').classList.add('open');
+}
+
+async function guardarPetsAdmin() {
+  const nombre = document.getElementById('petsNombre').value.trim();
+  const file = document.getElementById('petsArchivo').files[0];
+  if (!nombre) { showToast('Escribe el nombre del PETS'); return; }
+  if (!file) { showToast('Elige el archivo PDF'); return; }
+  if (!petsPendingOts.length) { showToast('Elige al menos una actividad'); return; }
+  const btn = document.getElementById('petsSave');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const storage = firebase.storage();
+    const path = `paradas/${PARADA_ID}/pets/${Date.now()}_${file.name}`;
+    const ref = storage.ref(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    await petsCollection().add({ nombre, url, otNums: petsPendingOts, createdAt: Date.now() });
+    showToast('PETS guardado ✓');
+    document.getElementById('petsBackdrop').classList.remove('open');
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo guardar el PETS — revisa tu conexión');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar PETS';
 }
 
 function openSheetDirect(otNum) {
@@ -726,7 +799,9 @@ function openSheetDirect(otNum) {
   const volverBtnD = document.getElementById('btnVolverSubs');
   if (volverBtnD) volverBtnD.style.display = 'none';
 
-  document.getElementById('sheetTitle').textContent = `OT ${ot.otNum} — ${ot.descripcion}`;
+  // Las emergentes no tienen una OT real — mostrar "OT M-xxxxxx" es un ID interno de Firestore
+  // sin sentido para el usuario, así que en ese caso solo se muestra el nombre de la actividad.
+  document.getElementById('sheetTitle').textContent = isManual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`;
   document.getElementById('sheetMeta').textContent = (ot.pesoPlanHH ? `${ot.pesoPlanHH.toFixed(1)} HH estimadas` : 'Actividad emergente') + (ot.cuadrilla ? ' · Cuadrilla ' + cuadrillaLabel(ot.cuadrilla) : '') + (getOtSupervisor(ot.otNum) ? ' · Sup: ' + getOtSupervisor(ot.otNum) : '');
   document.getElementById('sheetDelete').style.display = isManual ? 'block' : 'none';
   renderPetsBlock(key);
@@ -739,9 +814,8 @@ function openSheetDirect(otNum) {
   document.getElementById('pctDisplay').textContent = slider.value + '%';
 
   populateTurnoOverride(tIdx, avanceMap);
-  renderComponentesSection();
-  ensureFotosActividadSection();
-  renderFotosActividadSection(key);
+  resetComentarioForm();
+  renderComentarioFeed(key);
   renderGanttActividad(key);
   poblarSupervisoresPanel(key);
   document.body.classList.remove('polines-abierto');
@@ -794,31 +868,35 @@ function renderChart() {
     return arr.map((v, i) => v === null || v === undefined ? '' :
       `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${color}"/>`).join('');
   }
+  // Estilo "gráfico de Excel": fondo blanco, grilla gris clara, colores sobrios
+  // (Plan azul oscuro, Real rojo, Alcance Emergentes celeste punteado, Total naranja).
+  const EXCEL_PLAN = '#1F3E8C', EXCEL_REAL = '#D93B3B', EXCEL_ALCANCE = '#8FA7C4', EXCEL_TOTAL = '#E8862C';
   const gridY = [0, 0.25, 0.5, 0.75, 1, 1.25].map((v) => `
-    <line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="#E3E6EB" stroke-width="1"/>
-    <text x="${padL-6}" y="${y(v)+3}" font-size="9" fill="#9AA4B2" text-anchor="end" font-family="ui-monospace,monospace">${Math.round(v*100)}%</text>
+    <line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="#D9D9D9" stroke-width="1"/>
+    <text x="${padL-6}" y="${y(v)+3}" font-size="9" fill="#595959" text-anchor="end" font-family="Calibri,Arial,sans-serif">${Math.round(v*100)}%</text>
   `).join('');
   const xAxisLabels = labels.map((lbl, i) => {
     const parts = lbl.split('  ');
-    return `<text x="${x(i).toFixed(1)}" y="${H-padB+13}" font-size="7.5" fill="#9AA4B2" text-anchor="middle" font-family="ui-monospace,monospace" transform="rotate(45 ${x(i).toFixed(1)} ${H-padB+13})">${parts.join(' ')}</text>`;
+    return `<text x="${x(i).toFixed(1)}" y="${H-padB+13}" font-size="7.5" fill="#595959" text-anchor="middle" font-family="Calibri,Arial,sans-serif" transform="rotate(45 ${x(i).toFixed(1)} ${H-padB+13})">${parts.join(' ')}</text>`;
   }).join('');
   const xAxisTicks = labels.map((lbl, i) =>
-    `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${H-padB}" y2="${H-padB+4}" stroke="#9AA4B2" stroke-width="1"/>`
+    `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${H-padB}" y2="${H-padB+4}" stroke="#BFBFBF" stroke-width="1"/>`
   ).join('');
 
   svgWrap.innerHTML = `
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%; height:auto; display:block;">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%; height:auto; display:block; background:#FFFFFF; border-radius:8px;">
+      <rect x="0" y="0" width="${W}" height="${H}" fill="#FFFFFF"/>
       ${gridY}
-      <line x1="${padL}" x2="${W-padR}" y1="${H-padB}" y2="${H-padB}" stroke="#9AA4B2" stroke-width="1"/>
+      <line x1="${padL}" x2="${W-padR}" y1="${H-padB}" y2="${H-padB}" stroke="#BFBFBF" stroke-width="1"/>
       ${xAxisTicks}
       ${xAxisLabels}
-      ${vis.alcance ? `<path d="${pathFor(alcanceEmerg)}" fill="none" stroke="#1FA0A5" stroke-width="2" stroke-dasharray="5,4"/>` : ''}
-      ${vis.plan ? `<path d="${pathFor(percentPlan)}" fill="none" stroke="#1FA0A5" stroke-width="2.5"/>` : ''}
-      ${vis.real ? `<path d="${pathFor(percentReal)}" fill="none" stroke="#F0403E" stroke-width="2.5"/>` : ''}
-      ${vis.total ? `<path d="${pathFor(percentRealTotal)}" fill="none" stroke="#FF9F45" stroke-width="2.5"/>` : ''}
-      ${vis.plan ? dotsFor(percentPlan, '#1FA0A5') : ''}
-      ${vis.real ? dotsFor(percentReal, '#F0403E') : ''}
-      ${vis.total ? dotsFor(percentRealTotal, '#FF9F45') : ''}
+      ${vis.alcance ? `<path d="${pathFor(alcanceEmerg)}" fill="none" stroke="${EXCEL_ALCANCE}" stroke-width="1.75" stroke-dasharray="5,4"/>` : ''}
+      ${vis.plan ? `<path d="${pathFor(percentPlan)}" fill="none" stroke="${EXCEL_PLAN}" stroke-width="2.25"/>` : ''}
+      ${vis.real ? `<path d="${pathFor(percentReal)}" fill="none" stroke="${EXCEL_REAL}" stroke-width="2.25"/>` : ''}
+      ${vis.total ? `<path d="${pathFor(percentRealTotal)}" fill="none" stroke="${EXCEL_TOTAL}" stroke-width="2.25"/>` : ''}
+      ${vis.plan ? dotsFor(percentPlan, EXCEL_PLAN) : ''}
+      ${vis.real ? dotsFor(percentReal, EXCEL_REAL) : ''}
+      ${vis.total ? dotsFor(percentRealTotal, EXCEL_TOTAL) : ''}
     </svg>`;
 
   // Leyenda clicable: activa/desactiva cada curva
@@ -1595,7 +1673,7 @@ function listenPolines() {
     state.polinesEstado = {};
     snap.forEach((doc) => { state.polinesEstado[doc.id] = doc.data(); });
     renderAll();
-    if (document.getElementById('polinesSheetBackdrop').classList.contains('open')) renderPolinesList();
+    if (document.getElementById('polinesSheetBackdrop') && document.getElementById('polinesSheetBackdrop').classList.contains('open')) renderPolinesList();
     if (polinesSheetOtNum) renderProtocoloPanel(polinesSheetOtNum);
   });
   polinesHistorialCollection().onSnapshot((snap) => {
@@ -2636,6 +2714,140 @@ function fmtFechaCorta(iso) {
   return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' }).replace('.', '');
 }
 
+// ============================================================
+// Comentario y fotos por actividad — reemplaza "Componentes cambiados"
+// y "Fotos antes/después". Se guarda un registro por cada vez que se
+// presiona "Guardar avance de esta actividad": comentarios en viñetas
+// (una idea por línea) + fotos con su propia descripción (cámara o
+// galería, a elección). Queda asociado a la OT igual que componentes.
+// ============================================================
+
+function bitacoraCollection() { return state.db.collection('paradas').doc(PARADA_ID).collection('bitacora'); }
+state.bitacora = [];
+let comentarioFotoRows = [];
+
+function listenBitacora() {
+  bitacoraCollection().onSnapshot((snap) => {
+    state.bitacora = [];
+    snap.forEach((doc) => state.bitacora.push({ id: doc.id, ...doc.data() }));
+    if (sheetCtx) renderComentarioFeed(sheetCtx.otNum);
+  }, (err) => console.error('bitacora error:', err));
+}
+
+function escBit(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function resetComentarioForm() {
+  const ta = document.getElementById('comentarioTexto');
+  if (ta) ta.value = '';
+  comentarioFotoRows = [{ file: null, previewUrl: null, descripcion: '' }];
+  renderComentarioFotoRows();
+}
+
+function renderComentarioFotoRows() {
+  const wrap = document.getElementById('comentarioFotosWrap');
+  if (!wrap) return;
+  wrap.innerHTML = comentarioFotoRows.map((row, i) => `
+    <div class="comentario-foto-row">
+      <div class="comentario-foto-actions">
+        <label class="foto-slot-btn">📷 Tomar foto<input type="file" accept="image/*" capture="environment" class="comentario-foto-input" data-i="${i}" style="display:none;"></label>
+        <label class="foto-slot-btn foto-slot-btn-alt">🖼 Galería<input type="file" accept="image/*" class="comentario-foto-input" data-i="${i}" style="display:none;"></label>
+        ${comentarioFotoRows.length > 1 ? `<button type="button" class="comentario-foto-remove" data-i="${i}">✕</button>` : ''}
+      </div>
+      ${row.previewUrl ? `<img class="comentario-foto-preview" src="${row.previewUrl}">` : ''}
+      <input type="text" class="comentario-foto-desc" data-i="${i}" placeholder="Descripción de la foto" value="${escBit(row.descripcion).replace(/"/g, '&quot;')}">
+    </div>`).join('');
+  wrap.querySelectorAll('.comentario-foto-input').forEach((inp) => {
+    inp.addEventListener('change', (e) => {
+      const i = Number(inp.dataset.i);
+      const file = e.target.files[0];
+      if (!file) return;
+      comentarioFotoRows[i].file = file;
+      const reader = new FileReader();
+      reader.onload = () => { comentarioFotoRows[i].previewUrl = reader.result; renderComentarioFotoRows(); };
+      reader.readAsDataURL(file);
+    });
+  });
+  wrap.querySelectorAll('.comentario-foto-desc').forEach((inp) => {
+    inp.addEventListener('input', () => { comentarioFotoRows[Number(inp.dataset.i)].descripcion = inp.value; });
+  });
+  wrap.querySelectorAll('.comentario-foto-remove').forEach((btn) => {
+    btn.addEventListener('click', () => { comentarioFotoRows.splice(Number(btn.dataset.i), 1); renderComentarioFotoRows(); });
+  });
+}
+
+function renderComentarioFeed(otNum) {
+  const wrap = document.getElementById('comentarioFeed');
+  if (!wrap) return;
+  const items = state.bitacora.filter((b) => String(b.otNum) === String(otNum))
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  if (!items.length) { wrap.innerHTML = '<div class="componentes-empty">Sin comentarios registrados para esta actividad</div>'; return; }
+  wrap.innerHTML = items.map((entry) => `
+    <div class="comentario-entry">
+      <div class="comentario-entry-head">
+        <span>${entry.fecha ? fmtFechaCorta(entry.fecha) : ''} · Turno ${escBit(entry.turnoTipo || '')}</span>
+        <button type="button" class="comentario-entry-del" data-id="${entry.id}">🗑</button>
+      </div>
+      ${entry.bullets && entry.bullets.length ? `<ul class="comentario-entry-bullets">${entry.bullets.map((b) => `<li>${escBit(b)}</li>`).join('')}</ul>` : ''}
+      ${entry.fotos && entry.fotos.length ? `<div class="comentario-entry-fotos">${entry.fotos.map((f) => `<div class="comentario-entry-foto"><img src="${f.url}" loading="lazy"><span>${escBit(f.descripcion || '')}</span></div>`).join('')}</div>` : ''}
+    </div>`).join('');
+  wrap.querySelectorAll('.comentario-entry-del').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este comentario?')) return;
+      try { await bitacoraCollection().doc(btn.dataset.id).delete(); showToast('Comentario eliminado'); }
+      catch (e) { console.error(e); showToast('No se pudo eliminar'); }
+    });
+  });
+}
+
+async function guardarComentarioActividad() {
+  if (!sheetCtx) return;
+  const ot = allOts().find((o) => o.otNum === sheetCtx.otNum);
+  const bullets = (document.getElementById('comentarioTexto').value || '')
+    .split('\n').map((s) => s.trim()).filter(Boolean);
+  const fotosConFile = comentarioFotoRows.filter((r) => r.file);
+  if (!bullets.length && !fotosConFile.length) {
+    showToast('Agrega al menos un comentario o una foto antes de guardar');
+    return;
+  }
+  const btn = document.getElementById('btnGuardarComentario');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const storage = firebase.storage();
+    const fotos = [];
+    for (const row of fotosConFile) {
+      const path = `paradas/${PARADA_ID}/bitacora/${sheetCtx.otNum}_${Date.now()}_${row.file.name}`;
+      const ref = storage.ref(path);
+      await ref.put(row.file);
+      const url = await ref.getDownloadURL();
+      fotos.push({ url, descripcion: row.descripcion || '' });
+    }
+    const tIdx = turnoActualIdx();
+    const tISO = SEED_DATA.turnos[tIdx] || new Date().toISOString();
+    await bitacoraCollection().add({
+      otNum: sheetCtx.otNum,
+      otDescripcion: ot.descripcion,
+      area: ot.area,
+      titulo: (typeof sheetCtx.manual !== 'undefined' && sheetCtx.manual) ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`,
+      fecha: tISO.slice(0, 10),
+      turnoTipo: turnoTipoDe(tIdx) === 'A' ? 'Día' : 'Noche',
+      turnoIdx: tIdx,
+      bullets,
+      fotos,
+      createdAt: Date.now(),
+    });
+    resetComentarioForm();
+    showToast('Avance guardado ✓');
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo guardar — revisa tu conexión');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar avance de esta actividad';
+}
+
 function generarDescripcionParada() {
   const areas = [...new Set(allOts().filter((o) => o.tipo !== 'Emergente').map((o) => o.area))];
   return `Mantención mecánica de ${areas.join(', ')}.`;
@@ -2871,78 +3083,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 'pdf-curva-s');
 
   safeInit(() => {
-    document.getElementById('btnAddComponente').addEventListener('click', () => {
-      if (!sheetCtx) return;
-      const ot = allOts().find((o) => o.otNum === sheetCtx.otNum);
-      document.getElementById('compOtLabel').textContent = `OT ${ot.otNum} — ${ot.descripcion}`;
-      document.getElementById('compSap').value = '';
-      document.getElementById('compDesc').value = '';
-      document.getElementById('compCantidad').value = '';
-      document.getElementById('compFoto').value = '';
-      document.getElementById('compFotoPreview').style.display = 'none';
-      compFotoFile = null;
-      document.getElementById('compBackdrop').classList.add('open');
-    });
-
-    document.getElementById('compFoto').addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      compFotoFile = file || null;
-      const preview = document.getElementById('compFotoPreview');
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (ev) => { preview.src = ev.target.result; preview.style.display = 'block'; };
-        reader.readAsDataURL(file);
-      } else {
-        preview.style.display = 'none';
-      }
-    });
-
-    document.getElementById('compCancel').addEventListener('click', () => {
-      document.getElementById('compBackdrop').classList.remove('open');
-    });
-    document.getElementById('compBackdrop').addEventListener('click', (e) => {
-      if (e.target.id === 'compBackdrop') document.getElementById('compBackdrop').classList.remove('open');
-    });
-
-    document.getElementById('compSave').addEventListener('click', async () => {
-      if (!sheetCtx) return;
-      const sap = document.getElementById('compSap').value.trim();
-      const desc = document.getElementById('compDesc').value.trim();
-      const cantidad = parseFloat(document.getElementById('compCantidad').value) || 0;
-      if (!desc) { showToast('Falta la descripción del componente'); return; }
-
-      const ot = allOts().find((o) => o.otNum === sheetCtx.otNum);
-      const saveBtn = document.getElementById('compSave');
-      saveBtn.disabled = true; saveBtn.textContent = 'Guardando…';
-
-      try {
-        let fotoURL = null;
-        if (compFotoFile) {
-          const storage = firebase.storage();
-          const path = `paradas/${PARADA_ID}/componentes/${Date.now()}_${compFotoFile.name}`;
-          const ref = storage.ref(path);
-          await ref.put(compFotoFile);
-          fotoURL = await ref.getDownloadURL();
-        }
-        await componentesCollection().add({
-          otNum: sheetCtx.otNum,
-          otDescripcion: ot.descripcion,
-          area: ot.area,
-          codigoSAP: sap,
-          descripcion: desc,
-          cantidad,
-          fotoURL,
-          createdAt: new Date().toISOString(),
-        });
-        showToast('Componente guardado ✓');
-        document.getElementById('compBackdrop').classList.remove('open');
-      } catch (e) {
-        console.error(e);
-        showToast('No se pudo guardar — revisa tu conexión');
-      }
-      saveBtn.disabled = false; saveBtn.textContent = 'Guardar componente';
-    });
-
     const btnReporte = document.getElementById('btnReporteComponentes');
     if (btnReporte) {
       btnReporte.addEventListener('click', async () => {
@@ -2957,6 +3097,31 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   }, 'componentes');
+
+  safeInit(() => {
+    document.getElementById('btnAddComentarioFoto').addEventListener('click', () => {
+      comentarioFotoRows.push({ file: null, previewUrl: null, descripcion: '' });
+      renderComentarioFotoRows();
+    });
+    document.getElementById('btnGuardarComentario').addEventListener('click', guardarComentarioActividad);
+  }, 'comentario-actividad');
+
+  safeInit(() => {
+    document.getElementById('btnAddPets').addEventListener('click', abrirModalPets);
+    document.getElementById('petsCancel').addEventListener('click', () => document.getElementById('petsBackdrop').classList.remove('open'));
+    document.getElementById('petsBackdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'petsBackdrop') document.getElementById('petsBackdrop').classList.remove('open');
+    });
+    document.getElementById('petsSave').addEventListener('click', guardarPetsAdmin);
+
+    const linkDrive = document.getElementById('linkDriveCertificados');
+    if (typeof DRIVE_CERTIFICADOS_URL !== 'undefined' && DRIVE_CERTIFICADOS_URL) {
+      linkDrive.href = DRIVE_CERTIFICADOS_URL;
+    } else {
+      linkDrive.style.opacity = '.5';
+      linkDrive.addEventListener('click', (e) => { e.preventDefault(); showToast('Aún no se ha cargado el link de Drive'); });
+    }
+  }, 'pets-admin-drive');
 
   safeInit(() => {
     document.querySelectorAll('[data-avview]').forEach((btn) => {
@@ -3240,9 +3405,8 @@ function abrirDetalleOt(otNum) {
 
   renderGanttActividad(key);
   poblarSupervisoresPanel(key);
-  renderComponentesSection();
-  ensureFotosActividadSection();
-  renderFotosActividadSection(key);
+  resetComentarioForm();
+  renderComentarioFeed(key);
 
   mostrarListaSubactividades(ot);
   const volverBtnL = document.getElementById('btnVolverSubs');

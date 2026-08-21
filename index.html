@@ -424,6 +424,8 @@
       </div>
       <button id="btnInformeGeneral" class="btn-informe principal">Informe general</button>
       <button id="btnInformeTurno" class="btn-informe">Informe por turno</button>
+      <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-informe">📁 Certificados aparejos</a>
+      <button id="btnAddPets" class="btn-informe" type="button">📄 + PETS</button>
     </div>
     <p class="eyebrow"><span class="conn-dot" id="connDot"></span><span id="connTxt">Conectando…</span></p>
     <div class="turno-actual-badge" id="turnoActualBadge"></div>
@@ -503,10 +505,10 @@
         </div>
         <p class="legend-hint">Toca cada línea para mostrar u ocultar</p>
         <div class="legend">
-          <span data-curve="plan"><i style="background:#1FA0A5"></i>Plan</span>
-          <span data-curve="real"><i style="background:#F0403E"></i>Real</span>
-          <span data-curve="alcance"><i style="background:#1FA0A5;opacity:.5"></i>Alcance Emergentes</span>
-          <span data-curve="total"><i style="background:#E8622C"></i>Real Total</span>
+          <span data-curve="plan"><i style="background:#1F3E8C"></i>Avance Planificado</span>
+          <span data-curve="real"><i style="background:#D93B3B"></i>Avance Real</span>
+          <span data-curve="alcance"><i style="background:#8FA7C4"></i>Alcance Emergentes</span>
+          <span data-curve="total"><i style="background:#E8862C"></i>Real Total</span>
         </div>
         <div id="chartSvgWrap"></div>
         <p style="font-family:var(--mono); font-size:11px; color:var(--ink-muted); margin:10px 8px 4px;" id="kpiActual"></p>
@@ -538,7 +540,7 @@
         <p class="meta" id="sheetMeta">—</p>
 
         <div id="petsBlock" style="display:none; margin:0 0 14px;">
-          <a id="petsLink" href="#" target="_blank" rel="noopener" class="btn-pets">📄 Descargar PETS</a>
+          <div id="petsLinksList" style="display:flex; flex-direction:column; gap:6px;"></div>
           <p id="petsSinLink" style="display:none; font-size:11.5px; color:var(--ink-dim); margin:0;">PETS aún no cargado para esta OT.</p>
         </div>
 
@@ -575,12 +577,16 @@
 
         <button id="sheetDelete" style="display:none; width:100%; padding:11px; margin-bottom:10px; border-radius:12px; border:1.5px solid var(--cancelada); background:var(--cancelada-soft); color:var(--cancelada); font-family:var(--sans); font-size:13px; font-weight:700; cursor:pointer;">🗑 Eliminar esta actividad emergente</button>
 
-        <div class="componentes-block">
+        <div class="comentario-block">
           <div class="componentes-block-header">
-            <span>Componentes cambiados</span>
-            <button id="btnAddComponente" type="button">+ Agregar</button>
+            <span>Comentario y fotos de este avance</span>
           </div>
-          <div id="componentesList"></div>
+          <p class="rotulo-mini">Comentarios — una idea por línea, se listan como en el informe</p>
+          <textarea id="comentarioTexto" class="comentario-textarea" rows="4" placeholder="Se realizó el desajuste de pernos.&#10;Se realizó limpieza mecánica.&#10;Personal mecánico realizó maniobras manuales para retirar el componente."></textarea>
+          <div id="comentarioFotosWrap"></div>
+          <button id="btnAddComentarioFoto" type="button" class="btn-add-foto">+ Agregar foto</button>
+          <button id="btnGuardarComentario" type="button" class="btn-guardar-comentario">Guardar avance de esta actividad</button>
+          <div id="comentarioFeed" class="comentario-feed"></div>
         </div>
       </div>
     </div>
@@ -590,33 +596,6 @@
     <button class="active" data-view="avance"><span id="navIconList"></span>Avance</button>
     <button data-view="curva"><span id="navIconChart"></span>Curva S</button>
   </nav>
-
-  <!-- Modal: agregar componente -->
-  <div class="sheet-backdrop" id="compBackdrop">
-    <div class="sheet">
-      <div class="handle"></div>
-      <h2>Nuevo componente</h2>
-      <p class="meta" id="compOtLabel">—</p>
-
-      <label style="display:block; font-size:12px; color:var(--ink-muted); margin:14px 0 6px;">Código SAP</label>
-      <input type="text" id="compSap" placeholder="Ej: 10-458392" style="width:100%; padding:12px; border-radius:10px; background:var(--navy-soft); color:var(--ink); border:1px solid var(--line); font-family:var(--mono); font-size:14px; margin-bottom:14px;">
-
-      <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Descripción</label>
-      <input type="text" id="compDesc" placeholder="Ej: Placa guia VR-FD-02" style="width:100%; padding:12px; border-radius:10px; background:var(--navy-soft); color:var(--ink); border:1px solid var(--line); font-family:var(--sans); font-size:14px; margin-bottom:14px;">
-
-      <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Cantidad a retirar</label>
-      <input type="number" id="compCantidad" placeholder="1" min="0" step="1" style="width:100%; padding:12px; border-radius:10px; background:var(--navy-soft); color:var(--ink); border:1px solid var(--line); font-family:var(--mono); font-size:14px; margin-bottom:14px;">
-
-      <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Foto (opcional)</label>
-      <input type="file" id="compFoto" accept="image/*" capture="environment" style="width:100%; margin-bottom:8px;">
-      <img id="compFotoPreview" style="display:none; width:100%; max-height:160px; object-fit:cover; border-radius:10px; margin-bottom:14px;">
-
-      <div class="sheet-actions">
-        <button class="btn ghost" id="compCancel">Cancelar</button>
-        <button class="btn primary" id="compSave">Guardar componente</button>
-      </div>
-    </div>
-  </div>
 
   <div class="toast" id="toast"></div>
 </div>
@@ -640,6 +619,29 @@
     <div class="sheet-actions">
       <button class="btn ghost" id="emergCancel">Cancelar</button>
       <button class="btn primary" id="emergSave">Crear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: administrar PETS -->
+<div class="sheet-backdrop" id="petsBackdrop">
+  <div class="sheet">
+    <div class="handle"></div>
+    <h2>Nuevo PETS</h2>
+    <p class="meta">Sube el PDF y elige a qué actividades aplica. Quedará disponible para verlo desde el detalle de cada una.</p>
+
+    <label style="display:block; font-size:12px; color:var(--ink-muted); margin:14px 0 6px;">Nombre del PETS</label>
+    <input type="text" id="petsNombre" placeholder="Ej: PETS Cambio de válvulas de cuchilla" style="width:100%; padding:12px; border-radius:10px; background:var(--navy-soft); color:var(--ink); border:1px solid var(--line); font-family:var(--sans); font-size:14px; margin-bottom:14px;">
+
+    <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Archivo PDF</label>
+    <input type="file" id="petsArchivo" accept="application/pdf" style="width:100%; margin-bottom:14px;">
+
+    <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Actividades a las que aplica</label>
+    <div id="petsOtsList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:18px;"></div>
+
+    <div class="sheet-actions">
+      <button class="btn ghost" id="petsCancel">Cancelar</button>
+      <button class="btn primary" id="petsSave">Guardar PETS</button>
     </div>
   </div>
 </div>

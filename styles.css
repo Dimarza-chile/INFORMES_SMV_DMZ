@@ -358,6 +358,54 @@ input[type=range]::-webkit-slider-thumb{
 .componente-row .c-del{ border:none; background:none; color: var(--cancelada); font-size:16px; cursor:pointer; padding:4px; }
 .componentes-empty{ font-size:12px; color: var(--ink-muted); text-align:center; padding:10px 0; }
 
+/* ---------- Comentario y fotos por actividad ---------- */
+.comentario-block{
+  border:1px solid var(--line); border-radius: var(--radius); padding:12px; margin-bottom:14px;
+  background: var(--navy-soft);
+}
+.comentario-textarea{
+  width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line);
+  background: var(--navy); color: var(--ink); font-family: var(--sans); font-size:13px;
+  resize:vertical; margin-bottom:12px;
+}
+.comentario-foto-row{ border:1.5px dashed var(--line); border-radius:10px; padding:10px; margin-bottom:10px; }
+.comentario-foto-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.comentario-foto-actions .foto-slot-btn{ width:auto; flex:1; min-width:110px; }
+.foto-slot-btn-alt{ background: var(--navy); color: var(--ink-muted); border-color: var(--line) !important; }
+.comentario-foto-remove{
+  width:30px; height:30px; border-radius:8px; border:1.5px solid var(--line); background:none;
+  color: var(--ink-muted); font-size:14px; cursor:pointer; flex:none;
+}
+.comentario-foto-preview{ width:100%; max-height:170px; object-fit:cover; border-radius:8px; margin-top:8px; }
+.comentario-foto-desc{
+  width:100%; margin-top:8px; padding:9px 10px; border-radius:8px; border:1px solid var(--line);
+  background: var(--navy); color: var(--ink); font-family: var(--sans); font-size:12.5px;
+}
+.btn-add-foto{
+  display:block; width:100%; padding:10px; border-radius:9px; border:1.5px dashed var(--brand);
+  background:none; color: var(--brand); font-family: var(--sans); font-size:12.5px; font-weight:700;
+  cursor:pointer; margin-bottom:10px;
+}
+.btn-guardar-comentario{
+  display:block; width:100%; padding:12px; border-radius:10px; border:none;
+  background: var(--brand); color:#fff; font-family: var(--sans); font-size:13.5px; font-weight:700;
+  cursor:pointer; margin-bottom:4px;
+}
+.btn-guardar-comentario:disabled{ opacity:.6; }
+.comentario-feed{ margin-top:12px; border-top:1px solid var(--line); padding-top:10px; }
+.comentario-entry{ padding:8px 0; border-bottom:1px solid var(--line); }
+.comentario-entry:last-child{ border-bottom:none; }
+.comentario-entry-head{
+  display:flex; justify-content:space-between; align-items:center;
+  font-family: var(--mono); font-size:10.5px; color: var(--ink-dim); margin-bottom:5px;
+}
+.comentario-entry-del{ border:none; background:none; color: var(--ink-dim); font-size:13px; cursor:pointer; padding:2px; }
+.comentario-entry-bullets{ margin:0 0 6px; padding-left:18px; }
+.comentario-entry-bullets li{ font-size:12.5px; line-height:1.5; color: var(--ink); margin-bottom:2px; }
+.comentario-entry-fotos{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.comentario-entry-foto img{ width:100%; height:80px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
+.comentario-entry-foto span{ display:block; font-size:10.5px; color: var(--ink-muted); margin-top:3px; }
+
 /* ---------- v4: detalle Gantt de una sola línea ---------- */
 .gantt-detail-list{ margin-top:14px; padding:0 2px; }
 .gantt-detail-item{
