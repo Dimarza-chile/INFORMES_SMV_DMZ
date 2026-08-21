@@ -1545,7 +1545,7 @@ async function generateCurvaSImagen() {
   const curveData = state.lastCurveData || computeCurve();
   const { labels, percentPlan, percentReal, alcanceEmerg, percentRealTotal, kpis } = curveData;
 
-  const W = 760, H = 420, padL = 48, padR = 20, padT = 20, padB = 52;
+  const W = 600, H = 380, padL = 48, padR = 16, padT = 20, padB = 52;
   const n = labels.length;
   const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
   const yMax = 1.25;
@@ -1607,27 +1607,50 @@ async function generateCurvaSImagen() {
       <span style="font-size:12.5px; color:#3A3A3A;">${escBit(label)}</span>
     </div>`).join('');
 
+  // Índice de cumplimiento de programa (equivalente a SPI = Real / Plan del
+  // control de proyectos): el indicador más estándar para saber, de un
+  // vistazo, si la parada va adelantada o atrasada respecto al plan — es el
+  // que más se usa junto a una Curva S y antes no estaba en la imagen.
+  const idxsConDato = percentReal.map((v, i) => (v !== null && v !== undefined ? i : -1)).filter((i) => i >= 0);
+  const lastIdx = idxsConDato.length ? idxsConDato[idxsConDato.length - 1] : undefined;
+  const realActual = lastIdx !== undefined ? percentReal[lastIdx] : null;
+  const planActual = lastIdx !== undefined ? percentPlan[lastIdx] : null;
+  const indiceCumplimiento = (realActual !== null && planActual > 0) ? realActual / planActual : null;
+
   const nTotalOts = kpis.nTotalVigentes + kpis.nCanceladas;
   const pctCanceladoConteo = nTotalOts ? kpis.nCanceladas / nTotalOts : 0;
-  const kpiCards = [
-    ['Crecim. Alcance', `${(kpis.pctCrecimiento * 100).toFixed(1)}%`],
-    ['Var. Neta', `${kpis.netoPct >= 0 ? '+' : ''}${(kpis.netoPct * 100).toFixed(1)}%`],
-    ['Cancelado', `${kpis.nCanceladas} / ${nTotalOts} (${(pctCanceladoConteo * 100).toFixed(0)}%)`],
-  ].map(([label, value]) => `
-    <div style="flex:1; background:#F4F4F2; border:1px solid #E2E2DD; border-radius:10px; padding:12px 14px;">
+
+  function tarjetaKpi(label, value, destacada) {
+    return `<div style="flex:1; background:${destacada ? '#EAF3FF' : '#F4F4F2'}; border:1px solid ${destacada ? '#BBD6F5' : '#E2E2DD'}; border-radius:10px; padding:12px 14px;">
       <div style="font-size:10px; color:#8A8A90; text-transform:uppercase; letter-spacing:.04em;">${escBit(label)}</div>
       <div style="font-size:19px; font-weight:800; color:#1A1A2E; margin-top:3px;">${escBit(value)}</div>
-    </div>`).join('');
+    </div>`;
+  }
+
+  const kpiFilaPrincipal = [
+    tarjetaKpi('Avance Real vs Plan', realActual !== null ? `${(realActual * 100).toFixed(1)}% / ${(planActual * 100).toFixed(1)}%` : 'Sin datos', true),
+    tarjetaKpi('Índice de Cumplimiento', indiceCumplimiento !== null ? `${(indiceCumplimiento * 100).toFixed(0)}%` : '—', true),
+    tarjetaKpi('Crecim. Alcance', `${(kpis.pctCrecimiento * 100).toFixed(1)}%`),
+    tarjetaKpi('Var. Neta', `${kpis.netoPct >= 0 ? '+' : ''}${(kpis.netoPct * 100).toFixed(1)}%`),
+    tarjetaKpi('Cancelado', `${kpis.nCanceladas} / ${nTotalOts} (${(pctCanceladoConteo * 100).toFixed(0)}%)`),
+  ].join('');
+
+  const kpiFilaSecundaria = [
+    tarjetaKpi('Completadas', `${kpis.nCompletadas} / ${kpis.nTotalVigentes} (${(kpis.pctCompletadas * 100).toFixed(0)}%)`),
+    tarjetaKpi('En curso', `${kpis.nEnCurso} / ${kpis.nTotalVigentes} (${(kpis.pctEnCurso * 100).toFixed(0)}%)`),
+    tarjetaKpi('No iniciadas', `${kpis.nNoIniciadas} / ${kpis.nTotalVigentes} (${(kpis.pctNoIniciadas * 100).toFixed(0)}%)`),
+  ].join('');
 
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed; left:-10000px; top:0; width:840px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:30px 34px;';
+  wrap.style.cssText = 'position:fixed; left:-10000px; top:0; width:900px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:30px 34px;';
   wrap.innerHTML = `
     <h2 style="text-align:center; font-size:19px; font-weight:800; margin:0 0 20px; line-height:1.35;">Curva S - ${escBit(SEED_DATA.paradaNombre)} (Planificado vs Real + Emergentes)</h2>
     <div style="display:flex; align-items:flex-start; gap:22px;">
-      <div style="flex:1; min-width:0;">${svg}</div>
+      <div style="flex:none;">${svg}</div>
       <div style="width:190px; flex:none; padding-top:20px;">${leyenda}</div>
     </div>
-    <div style="display:flex; gap:12px; margin-top:22px;">${kpiCards}</div>
+    <div style="display:flex; gap:10px; margin-top:22px;">${kpiFilaPrincipal}</div>
+    <div style="display:flex; gap:10px; margin-top:10px;">${kpiFilaSecundaria}</div>
   `;
   document.body.appendChild(wrap);
 
