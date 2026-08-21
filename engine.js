@@ -1429,6 +1429,61 @@ function buildBloqueRegistroFotosPreparativosWord(fotosEmbebidas) {
   return out;
 }
 
+// ---- Conclusiones / Recomendaciones: dos tablas de 2 columnas (ÍTEM
+// numerado automático + texto), idénticas en estructura — mapeadas de la
+// plantilla real, cada una con su propia numeración (numId=2 conclusiones,
+// numId=16 recomendaciones). Se arma una fila por actividad. ----
+const CONCLUSIONES_INTRO_ANCLA = ' concluye lo siguiente.';
+const RECOMENDACIONES_INTRO_ANCLA = 'recomienda';
+const CONCLUSIONES_NUM_ID = 2;
+const RECOMENDACIONES_NUM_ID = 16;
+
+function buildFilaItemTextoWord(numId, parrafos) {
+  const pid = randParaIdWord();
+  const itemCell = `<w:tc><w:tcPr><w:tcW w:w="1134" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="92D050"/><w:tcMar><w:top w:w="66" w:type="dxa"/><w:left w:w="115" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="115" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:bCs/><w:color w:val="000000" w:themeColor="text1"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr></w:p></w:tc>`;
+  const bodyParas = parrafos.map((p) =>
+    `<w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:ind w:right="56"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr>${p.bold ? '<w:b/><w:bCs/>' : ''}<w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(p.text)}</w:t></w:r></w:p>`
+  ).join('');
+  const bodyCell = `<w:tc><w:tcPr><w:tcW w:w="7938" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders><w:tcMar><w:top w:w="66" w:type="dxa"/><w:left w:w="115" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="115" w:type="dxa"/></w:tcMar></w:tcPr>${bodyParas}</w:tc>`;
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="857"/><w:jc w:val="center"/></w:trPr>${itemCell}${bodyCell}</w:tr>`;
+}
+
+// Texto de conclusión por actividad — usa el estado real (cancelada / avance
+// %) y, si hay, las viñetas ya cargadas en la bitácora de esa OT (evidencia
+// real, no texto inventado). Si no hay ninguna viñeta cargada, cae a una
+// frase genérica según el estado.
+function generarConclusionTextoOt(ot) {
+  const estado = getOtEstado(ot.otNum);
+  const cancelada = estado.startsWith('Cancelada');
+  if (cancelada) return 'Esta actividad fue cancelada durante la ejecución del servicio.';
+  const pct = Math.round(otProgressAt(ot, SEED_DATA.turnoLabels.length - 1) * 100);
+  const bullets = state.bitacora.filter((b) => String(b.otNum) === String(ot.otNum)).flatMap((b) => b.bullets || []);
+  if (!bullets.length) {
+    return pct >= 100
+      ? 'Se completó la actividad según lo planificado, cumpliendo con los estándares de calidad y seguridad establecidos.'
+      : `La actividad quedó con un avance de ${pct}% al cierre del periodo.`;
+  }
+  const intro = pct >= 100 ? 'Se completó la actividad realizando lo siguiente: ' : `La actividad avanzó un ${pct}%, realizando lo siguiente: `;
+  const bulletsSinPunto = bullets.map((b) => b.trim().replace(/\.+$/, ''));
+  return intro + bulletsSinPunto.join('. ') + '.';
+}
+
+function buildFilaConclusionWord(ot) {
+  return buildFilaItemTextoWord(CONCLUSIONES_NUM_ID, [
+    { text: `OT: ${ot.tipo === 'Emergente' ? 'EMERGENTE' : ot.otNum}`, bold: true },
+    { text: tituloSinEquipo(ot.descripcion), bold: true },
+    { text: generarConclusionTextoOt(ot), bold: false },
+  ]);
+}
+
+function buildFilaRecomendacionWord(ot, texto) {
+  return buildFilaItemTextoWord(RECOMENDACIONES_NUM_ID, [
+    { text: `OT: ${ot.tipo === 'Emergente' ? 'EMERGENTE' : ot.otNum}`, bold: true },
+    { text: tituloSinEquipo(ot.descripcion), bold: true },
+    { text: texto, bold: false },
+  ]);
+}
+
 async function generateInformeWordReal(informe) {
   if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
   const resp = await fetch('./assets/plantilla-informe.docx');
@@ -1711,6 +1766,43 @@ async function generateInformeWordReal(informe) {
     }
   } catch (e) {
     console.error('No se pudo incrustar la Curva S en el Word:', e);
+  }
+
+  // ---- Conclusiones: una fila por cada actividad del informe (todas, sin
+  // importar su estado — cancelada, emergente o completada), con evidencia
+  // real (viñetas de bitácora) cuando existe. ----
+  try {
+    const introIdx = xml.indexOf(CONCLUSIONES_INTRO_ANCLA);
+    if (introIdx !== -1) {
+      const tblStart = xml.indexOf('<w:tbl>', introIdx);
+      const tblEndConclusiones = xml.indexOf('</w:tbl>', tblStart);
+      if (tblStart !== -1 && tblEndConclusiones !== -1) {
+        const filasConclusiones = ots.map((ot) => buildFilaConclusionWord(ot)).join('');
+        xml = xml.slice(0, tblEndConclusiones) + filasConclusiones + xml.slice(tblEndConclusiones);
+      }
+    }
+  } catch (e) {
+    console.error('No se pudieron agregar las conclusiones en el Word:', e);
+  }
+
+  // ---- Recomendaciones: opcional, solo las actividades que tengan texto
+  // cargado en informe.recomendaciones[otNum]. ----
+  try {
+    const recomendaciones = informe.recomendaciones || {};
+    const otsConRecomendacion = ots.filter((ot) => (recomendaciones[ot.otNum] || '').trim());
+    if (otsConRecomendacion.length) {
+      const introIdx = xml.indexOf(RECOMENDACIONES_INTRO_ANCLA);
+      if (introIdx !== -1) {
+        const tblStart = xml.indexOf('<w:tbl>', introIdx);
+        const tblEndRecomendaciones = xml.indexOf('</w:tbl>', tblStart);
+        if (tblStart !== -1 && tblEndRecomendaciones !== -1) {
+          const filasRecomendaciones = otsConRecomendacion.map((ot) => buildFilaRecomendacionWord(ot, recomendaciones[ot.otNum].trim())).join('');
+          xml = xml.slice(0, tblEndRecomendaciones) + filasRecomendaciones + xml.slice(tblEndRecomendaciones);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('No se pudieron agregar las recomendaciones en el Word:', e);
   }
 
   // Verificación antes de entregar el archivo: si el XML quedó mal formado
