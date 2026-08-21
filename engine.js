@@ -1500,6 +1500,51 @@ function reemplazarValorCeldaWord(xml, labelIdx, texto) {
   return xml.slice(0, valueTcStart) + nuevaCelda + xml.slice(valueTcEnd);
 }
 
+// Avanza N celdas <w:tc> desde una posición dada, devolviendo el índice de
+// inicio de la N-ésima (n=1 es la primera después de `desde`) — para navegar
+// filas de varias columnas sin depender de texto (la fila de Supervisor
+// Mecánico tiene su etiqueta "DÍA:"/"NOCHE:" repartida letra por letra en
+// muchas celdas/runs por el historial de revisión, así que buscarla como
+// texto literal no es confiable).
+function avanzarNCeldasWord(xml, desde, n) {
+  let idx = desde;
+  for (let i = 0; i < n; i++) {
+    idx = xml.indexOf('<w:tc>', idx);
+    if (idx === -1) return -1;
+    if (i < n - 1) idx = xml.indexOf('</w:tc>', idx) + '</w:tc>'.length;
+  }
+  return idx;
+}
+
+// Inserta un run de texto dentro de una celda que viene vacía en la
+// plantilla (sin ningún <w:r>, solo un <w:p> con estilo pero sin contenido)
+// — el caso de las celdas Día/Noche de Supervisor Mecánico.
+function insertarValorCeldaVaciaWord(xml, tcStartIdx, texto) {
+  const tcEndIdx = xml.indexOf('</w:tc>', tcStartIdx) + '</w:tc>'.length;
+  const celda = xml.slice(tcStartIdx, tcEndIdx);
+  const pEndIdx = celda.indexOf('</w:p>');
+  if (pEndIdx === -1) return xml;
+  const run = `<w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Microsoft New Tai Lue" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${escXmlWord(texto)}</w:t></w:r>`;
+  const nuevaCelda = celda.slice(0, pEndIdx) + run + celda.slice(pEndIdx);
+  return xml.slice(0, tcStartIdx) + nuevaCelda + xml.slice(tcEndIdx);
+}
+
+// El supervisor de un informe no se pide manualmente — se calcula desde los
+// supervisores YA asignados por turno a cada actividad (OT) del informe
+// (los mismos que se usan para filtrar/agrupar en el resto de la app). Si
+// las OTs del informe tienen supervisores distintos para el mismo turno, se
+// usa el que se repite más.
+function calcularSupervisorInforme(ots, tipoTurno) {
+  const conteo = new Map();
+  ots.forEach((ot) => {
+    const nombre = getOtSupervisor(ot.otNum, tipoTurno);
+    if (nombre) conteo.set(nombre, (conteo.get(nombre) || 0) + 1);
+  });
+  let mejor = '', mejorConteo = 0;
+  conteo.forEach((c, nombre) => { if (c > mejorConteo) { mejor = nombre; mejorConteo = c; } });
+  return mejor;
+}
+
 // ---- Itinerario del servicio: una fila por turno (FECHA | TURNO A/B | HR.
 // INGRESO | HR. SALIDA | HRS PROGRAMADAS | HRS EFECTIVAS) — se arma entero
 // solo, no depende de nada que el usuario cargue: sale directo de
@@ -1601,10 +1646,7 @@ async function generateInformeWordReal(informe) {
   }
 
   // ---- Administrador de Contratos Centinela / SEMIVA: solo si el usuario
-  // cargó un valor propio — si no, se deja el que ya trae la plantilla. (Las
-  // filas de Supervisor Mecánico Día/Noche no se tocan: su estructura real
-  // tiene el texto de la etiqueta repartido en muchas celdas/filas fusionadas
-  // de forma poco confiable para editar por texto sin riesgo.) ----
+  // cargó un valor propio — si no, se deja el que ya trae la plantilla. ----
   try {
     if (informe.adminCentinela && informe.adminCentinela.trim()) {
       const centinelaLabelIdx = xml.indexOf('ADMINISTRADOR DE CONTRATOS ');
@@ -1702,14 +1744,48 @@ async function generateInformeWordReal(informe) {
     console.error('No se pudieron incrustar las actividades de preparativos en el Word:', e);
   }
 
+  const ots = (informe.otNums || [])
+    .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
+    .filter(Boolean);
+
+  // ---- Supervisor Mecánico de Centinela — Día/Noche: no se pide manual, se
+  // calcula de los supervisores ya asignados por turno a las actividades de
+  // este informe (los mismos que se usan para filtrar/agrupar en el resto de
+  // la app). Las celdas vienen vacías en la plantilla (sin ningún <w:r>), así
+  // que se les inserta el texto en vez de reemplazarlo. ----
+  try {
+    const supDia = calcularSupervisorInforme(ots, 'A');
+    const supNoche = calcularSupervisorInforme(ots, 'B');
+    if (supDia || supNoche) {
+      const supAnclaIdx = xml.indexOf('R MECÁNICO DE ');
+      if (supAnclaIdx !== -1) {
+        // supAnclaIdx cae en medio de la celda de la etiqueta (es texto
+        // dentro de ella), así que hay que ubicar el <w:tr> que la envuelve
+        // para contar celdas desde el inicio real de la fila.
+        const filaDiaInicio = xml.lastIndexOf('<w:tr', supAnclaIdx);
+        const filaDiaEndIdx = xml.indexOf('</w:tr>', supAnclaIdx);
+        const valorDiaIdx = avanzarNCeldasWord(xml, filaDiaInicio, 3);
+        const filaNocheInicio = xml.indexOf('<w:tr', filaDiaEndIdx);
+        const filaNocheEnd = xml.indexOf('</w:tr>', filaNocheInicio);
+        const valorNocheIdx = avanzarNCeldasWord(xml, filaNocheInicio, 3);
+        // Se inserta en orden inverso (noche primero) para no invalidar los
+        // índices de día, ya calculados sobre el xml original.
+        if (supNoche && valorNocheIdx !== -1 && valorNocheIdx < filaNocheEnd) {
+          xml = insertarValorCeldaVaciaWord(xml, valorNocheIdx, supNoche);
+        }
+        if (supDia && valorDiaIdx !== -1 && valorDiaIdx < filaDiaEndIdx) {
+          xml = insertarValorCeldaVaciaWord(xml, valorDiaIdx, supDia);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('No se pudo agregar el Supervisor Mecánico Día/Noche en el Word:', e);
+  }
+
   const anclaIdx = xml.indexOf(INFORME_TABLA_ANCLA);
   if (anclaIdx === -1) throw new Error('No se encontró la sección "ACTIVIDADES REALIZADAS EN PERIODO DE PARADA" en la plantilla — puede que la hayan editado.');
   const tblEndIdx = xml.indexOf('</w:tbl>', anclaIdx);
   if (tblEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de actividades.');
-
-  const ots = (informe.otNums || [])
-    .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
-    .filter(Boolean);
 
   const entradas = [];
   ots.forEach((ot) => {
