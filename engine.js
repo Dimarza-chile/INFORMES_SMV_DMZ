@@ -860,19 +860,76 @@ function buildFilaFechaWord(fechaTexto) {
   return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="283"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10206" w:type="dxa"/>${INFORME_TC_BORDERS}<w:shd w:val="clear" w:color="auto" w:fill="F2DBDB" w:themeFill="accent2" w:themeFillTint="33"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:color w:val="000000" w:themeColor="text1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:eastAsia="es-PE"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:color w:val="000000" w:themeColor="text1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:eastAsia="es-PE"/></w:rPr><w:t xml:space="preserve">FECHA: ${escXmlWord(fechaTexto)}</w:t></w:r></w:p></w:tc></w:tr>`;
 }
 
+// Quita el "(Equipo 12345)" del final del nombre de la OT — en el resto de la app
+// se muestra (Gantt, hoja de detalle), pero en el Word del informe no va.
+function tituloSinEquipo(desc) {
+  return String(desc || '').replace(/\s*\(Equipo[^)]*\)\s*$/i, '').trim();
+}
+
 // Fila "TURNO DÍA/NOCHE" con, dentro, una o más actividades (título en negrita
 // sacado del nombre de la OT + sus comentarios como viñetas) — mismo clon de estilo.
-function buildFilaTurnoWord(turnoLabel, items) {
+// continuaMismoDia=true cuando es el segundo turno bajo la misma fecha (ej. noche
+// después del día): se le agrega un borde superior más grueso para que quede
+// claramente separado del turno anterior, no solo la linea fina de la celda.
+function buildFilaTurnoWord(turnoLabel, items, continuaMismoDia) {
   const pid = randParaIdWord();
+  const tcBorders = continuaMismoDia
+    ? '<w:tcBorders><w:top w:val="single" w:sz="12" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>'
+    : INFORME_TC_BORDERS;
   const header = `<w:p><w:pPr><w:spacing w:before="120"/><w:ind w:right="115"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:iCs/><w:sz w:val="20"/><w:u w:val="single"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:iCs/><w:sz w:val="20"/><w:u w:val="single"/></w:rPr><w:t>${escXmlWord(turnoLabel)}</w:t></w:r></w:p>`;
-  const cuerpo = items.map(({ titulo, bullets }) => {
-    const tituloPara = `<w:p><w:pPr><w:spacing w:before="80"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(titulo)}</w:t></w:r></w:p>`;
+  const cuerpo = items.map(({ titulo, bullets, fotosXml }) => {
+    const tituloPara = `<w:p><w:pPr><w:spacing w:before="80"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(tituloSinEquipo(titulo))}</w:t></w:r></w:p>`;
     const listaBullets = (bullets.length ? bullets : ['(sin comentarios registrados)']).map((b) =>
       `<w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr><w:spacing w:line="276" w:lineRule="auto"/><w:ind w:left="1170" w:hanging="709"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(b)}</w:t></w:r></w:p>`
     ).join('');
-    return tituloPara + listaBullets;
+    return tituloPara + listaBullets + (fotosXml || '');
   }).join('');
-  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="482"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10206" w:type="dxa"/>${INFORME_TC_BORDERS}<w:vAlign w:val="center"/></w:tcPr>${header}${cuerpo}</w:tc></w:tr>`;
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="482"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10206" w:type="dxa"/>${tcBorders}<w:vAlign w:val="center"/></w:tcPr>${header}${cuerpo}</w:tc></w:tr>`;
+}
+
+const INFORME_EMU_POR_CM = 360000;
+const INFORME_FOTO_MAX_ANCHO_CM = 9;
+const INFORME_FOTO_MAX_ALTO_CM = 7;
+
+// Baja la foto (URL de Firebase Storage), la reduce a un tamaño razonable para
+// imprimir y la vuelve a codificar como JPEG — así siempre se sabe el formato
+// que se está incrustando, sin importar si el original era HEIC/PNG/lo que sea.
+// Devuelve null (en vez de lanzar) si la foto no se pudo procesar, para que una
+// foto rota no tumbe el informe completo.
+async function prepararFotoParaWord(url) {
+  try {
+    const r = await fetch(url);
+    const blob = await r.blob();
+    const bitmap = await createImageBitmap(blob);
+    const maxDim = 1600;
+    let w = bitmap.width, h = bitmap.height;
+    if (w > maxDim || h > maxDim) {
+      const s = maxDim / Math.max(w, h);
+      w = Math.round(w * s); h = Math.round(h * s);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    const bytes = new Uint8Array(await outBlob.arrayBuffer());
+
+    let cx = INFORME_FOTO_MAX_ANCHO_CM * INFORME_EMU_POR_CM;
+    let cy = cx * (h / w);
+    if (cy > INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM) {
+      cy = INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM;
+      cx = cy * (w / h);
+    }
+    return { bytes, cx: Math.round(cx), cy: Math.round(cy) };
+  } catch (e) {
+    console.error('No se pudo preparar una foto para el Word:', e);
+    return null;
+  }
+}
+
+// XML de una foto ya incrustada (<w:drawing> inline, sin recorte ni borde) —
+// clon del patrón <wp:inline> que ya usa la propia plantilla para sus fotos.
+function buildDrawingXmlWord(rId, cx, cy, docPrId) {
+  return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docPrId}" name="Imagen ${docPrId}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture ${docPrId}"/><pic:cNvPicPr><a:picLocks noChangeAspect="1" noChangeArrowheads="1"/></pic:cNvPicPr></pic:nvPicPr><pic:blipFill rotWithShape="1"><a:blip r:embed="${rId}"/><a:stretch/></pic:blipFill><pic:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:ln><a:noFill/></a:ln></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
 
 async function generateInformeWordReal(informe) {
@@ -900,11 +957,40 @@ async function generateInformeWordReal(informe) {
   });
   entradas.sort((a, b) => (a.entry.turnoIdx ?? 0) - (b.entry.turnoIdx ?? 0) || (a.entry.createdAt || 0) - (b.entry.createdAt || 0));
 
+  // ---- Fotos: se incrustan ANTES de armar las filas, porque hay que bajarlas
+  // y registrar su relación (rId) en el zip de forma asíncrona. ----
+  const relsPath = 'word/_rels/document.xml.rels';
+  let relsXml = zip.file(relsPath).asText();
+  const rIdsUsados = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
+  let nextRid = (rIdsUsados.length ? Math.max(...rIdsUsados) : 0) + 1;
+  let nuevasRelsXml = '';
+  let contadorImagen = 0;
+
+  for (const { entry } of entradas) {
+    entry.__fotosXmlWord = '';
+    if (!entry.fotos || !entry.fotos.length) continue;
+    for (const foto of entry.fotos) {
+      const preparada = await prepararFotoParaWord(foto.url);
+      if (!preparada) continue;
+      contadorImagen++;
+      const nombreArchivo = `autoFoto${Date.now()}_${contadorImagen}.jpeg`;
+      const rId = `rId${nextRid++}`;
+      zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+      nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+      const drawingXml = buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 900000 + contadorImagen);
+      const descEsc = escXmlWord(foto.descripcion || '');
+      entry.__fotosXmlWord += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="60"/></w:pPr><w:r>${drawingXml}</w:r></w:p>`;
+      if (descEsc) {
+        entry.__fotosXmlWord += `<w:p><w:pPr><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:i/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:i/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">${descEsc}</w:t></w:r></w:p>`;
+      }
+    }
+  }
+
   let rowsXml = '';
-  let lastFecha = null, lastTurnoKey = null, buffer = [];
+  let lastFecha = null, lastTurnoKey = null, buffer = [], bufferEsSegundoTurnoDelDia = false;
   const flush = () => {
     if (!buffer.length) return;
-    rowsXml += buildFilaTurnoWord(buffer[0].turnoLabel, buffer);
+    rowsXml += buildFilaTurnoWord(buffer[0].turnoLabel, buffer, bufferEsSegundoTurnoDelDia);
     buffer = [];
   };
   entradas.forEach(({ ot, entry }) => {
@@ -912,13 +998,17 @@ async function generateInformeWordReal(informe) {
     const turnoKey = fechaTexto + '|' + (entry.turnoTipo || '');
     if (turnoKey !== lastTurnoKey) {
       flush();
-      if (fechaTexto && fechaTexto !== lastFecha) { rowsXml += buildFilaFechaWord(fechaTexto); lastFecha = fechaTexto; }
+      const esMismaFechaQueAnterior = fechaTexto && fechaTexto === lastFecha;
+      if (fechaTexto && !esMismaFechaQueAnterior) { rowsXml += buildFilaFechaWord(fechaTexto); }
+      lastFecha = fechaTexto;
       lastTurnoKey = turnoKey;
+      bufferEsSegundoTurnoDelDia = esMismaFechaQueAnterior;
     }
     buffer.push({
       turnoLabel: entry.turnoTipo === 'Día' ? 'TURNO DÍA' : 'TURNO NOCHE',
       titulo: ot.manual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`,
       bullets: entry.bullets || [],
+      fotosXml: entry.__fotosXmlWord,
     });
   });
   flush();
@@ -936,6 +1026,16 @@ async function generateInformeWordReal(informe) {
   }
 
   zip.file('word/document.xml', xml);
+  if (nuevasRelsXml) {
+    relsXml = relsXml.replace('</Relationships>', nuevasRelsXml + '</Relationships>');
+    zip.file(relsPath, relsXml);
+    const ctPath = '[Content_Types].xml';
+    let ctXml = zip.file(ctPath).asText();
+    if (!/Extension="jpeg"/i.test(ctXml)) {
+      ctXml = ctXml.replace('</Types>', '<Default Extension="jpeg" ContentType="image/jpeg"/></Types>');
+      zip.file(ctPath, ctXml);
+    }
+  }
   const blob = zip.generate({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
