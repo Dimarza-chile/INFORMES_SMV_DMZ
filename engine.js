@@ -975,6 +975,14 @@ function renderGanttAxis(range) {
     return `<span style="left:${pct}%">${d.getDate()}-${meses[d.getMonth()]}</span>`;
   }).join('')}</div>`;
 
+  // Líneas rojas SOLO en el eje de fechas (para separar "12-ago" de "13-ago" etc.),
+  // no en toda la lista de abajo — se dibujan en su propia franja fina sobre el eje.
+  const dateLines = days
+    .filter((d) => d.getTime() !== days[0].getTime())
+    .map((d) => `<span class="gantt-date-line" style="left:${xPct(d, range)}%;"></span>`)
+    .join('');
+  const dateLineRow = `<div class="gantt-date-lines">${dateLines}</div>`;
+
   // Fila de turnos A (día) / B (noche) — va también en el header fijo
   const boundaries = SEED_DATA.turnos.map((t) => new Date(t));
   const turnoSpans = [];
@@ -988,7 +996,7 @@ function renderGanttAxis(range) {
   }
   const turnoRow = `<div class="gantt-turno-row">${turnoSpans.join('')}</div>`;
 
-  return dayRow + turnoRow;
+  return `<div class="gantt-axis-lines-wrap">${dayRow}${turnoRow}${dateLineRow}</div>`;
 }
 
 function fmtDateHour(iso) {
@@ -1016,17 +1024,7 @@ function renderTurnoGrid(range) {
     lines.push(`<div class="turno-gridline" style="left:${xPct(t,range)}%;"></div>`);
   });
 
-  // Líneas rojas en cada cambio de fecha (medianoche), para distinguir de un vistazo
-  // dónde termina un día y empieza el siguiente en la línea de tiempo.
-  const dateLines = [];
-  let cur = new Date(range.start);
-  cur.setHours(0, 0, 0, 0);
-  while (cur <= range.end) {
-    if (cur >= range.start) dateLines.push(`<div class="gantt-date-line" style="left:${xPct(cur,range)}%;"></div>`);
-    cur.setDate(cur.getDate() + 1);
-  }
-
-  return `<div class="turno-grid-overlay">${bands.join('')}${lines.join('')}${dateLines.join('')}</div>`;
+  return `<div class="turno-grid-overlay">${bands.join('')}${lines.join('')}</div>`;
 }
 
 function renderGanttOverview() {
@@ -2878,13 +2876,17 @@ function ensureInicioView() {
       <p class="hero-fechas" id="inicioFechas"></p>
       <p class="hero-desc" id="inicioDesc"></p>
       <button class="btn-entrar" id="btnEntrarLista">Lista de actividades</button>
-      <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📁 Certificados aparejos</a>
+      <div class="hero-secundarios">
+        <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📁 Certificados aparejos</a>
+        <button id="btnAddPetsInicio" type="button" class="btn-entrar btn-entrar-secundario">📄 + PETS</button>
+      </div>
       <div class="hero-stats" id="inicioStats"></div>
     </div>`;
   main.appendChild(div);
   document.getElementById('btnEntrarLista').addEventListener('click', () => {
     irAVista('avance');
   });
+  document.getElementById('btnAddPetsInicio').addEventListener('click', abrirModalPets);
 
   const linkDrive = document.getElementById('linkDriveCertificados');
   if (typeof DRIVE_CERTIFICADOS_URL !== 'undefined' && DRIVE_CERTIFICADOS_URL) {
@@ -2952,6 +2954,32 @@ function irAVista(nombre) {
   const mainEl = document.querySelector('main');
   if (mainEl) mainEl.scrollTop = 0;
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  safeInit(() => {
+    const btnToggle = document.getElementById('btnToggleHeader');
+    const header = document.querySelector('header.top');
+    btnToggle.addEventListener('click', () => {
+      const colapsado = header.classList.toggle('header-collapsed');
+      btnToggle.setAttribute('aria-expanded', colapsado ? 'false' : 'true');
+      btnToggle.title = colapsado ? 'Expandir' : 'Minimizar';
+    });
+
+    // La flecha de volver y el boton de Curva S (moviles) se ubican siempre justo
+    // debajo del header real — como el header se puede colapsar/expandir y su alto
+    // cambia con el contenido (turno, nombre de parada, etc.), se mide en vivo en vez
+    // de asumir un numero fijo.
+    const actualizarAltoHeader = () => {
+      document.documentElement.style.setProperty('--header-h', header.offsetHeight + 'px');
+    };
+    actualizarAltoHeader();
+    if (window.ResizeObserver) {
+      new ResizeObserver(actualizarAltoHeader).observe(header);
+    } else {
+      window.addEventListener('resize', actualizarAltoHeader);
+    }
+  }, 'toggle-header');
+});
 
 
 // ============================================================
@@ -3164,7 +3192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', (e) => {
       const header = e.target.closest('header.top');
       if (!header) return;
-      if (e.target.closest('.turno-actual-badge, .informes-row, .eyebrow')) return;
+      if (e.target.closest('.turno-actual-badge, .informes-row, .eyebrow, #btnToggleHeader')) return;
       if (typeof openInicioView === 'function') openInicioView();
     });
     const headerEl = document.querySelector('header.top');

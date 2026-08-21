@@ -74,7 +74,8 @@ nav.tabs button.active{ color: var(--brand); }
 main{ flex:1; overflow-y:auto; -webkit-overflow-scrolling: touch; }
 .view{ display:none; padding: 14px 16px 24px; }
 #view-inicio{ padding: 14px 14px 20px; }
-.view.active{ display:block; }
+.view.active{ display:block; animation: viewFadeIn .34s cubic-bezier(.22,.68,0,1); }
+@keyframes viewFadeIn{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
 
 /* ---------- KPI strip ---------- */
 .kpi-strip{ display:flex; gap:8px; margin-bottom:16px; }
@@ -148,11 +149,14 @@ main{ flex:1; overflow-y:auto; -webkit-overflow-scrolling: touch; }
 .sheet-backdrop{
   position:fixed; inset:0; background: rgba(6,14,22,.6); display:none; align-items:flex-end; z-index:50;
 }
-.sheet-backdrop.open{ display:flex; }
+.sheet-backdrop.open{ display:flex; animation: backdropFadeIn .26s ease; }
+@keyframes backdropFadeIn{ from{ background-color:rgba(6,14,22,0); } to{ background-color:rgba(6,14,22,.6); } }
 .sheet{
   background: var(--navy); width:100%; max-width:560px; margin:0 auto; border-radius: 20px 20px 0 0;
   padding: 8px 20px calc(20px + var(--safe-bottom)); max-height: 82vh; overflow-y:auto;
 }
+.sheet-backdrop.open .sheet{ animation: sheetSlideUp .34s cubic-bezier(.22,.68,0,1); }
+@keyframes sheetSlideUp{ from{ transform:translateY(36px); opacity:.5; } to{ transform:translateY(0); opacity:1; } }
 .sheet .handle{ width:36px; height:4px; background: var(--line); border-radius:100px; margin: 8px auto 14px; }
 .sheet h2{ font-size:16px; margin:0 0 2px; }
 .sheet .meta{ font-size:12px; color:var(--ink-muted); font-family: var(--mono); margin-bottom:18px; }
@@ -451,7 +455,12 @@ input[type=range]::-webkit-slider-thumb{
 .turno-grid-overlay{ position:absolute; inset:0; pointer-events:none; z-index:1; }
 .turno-band{ position:absolute; top:0; bottom:0; }
 .turno-gridline{ position:absolute; top:0; bottom:0; width:1px; background:rgba(255,255,255,.09); }
-.gantt-date-line{ position:absolute; top:0; bottom:0; width:1px; background:rgba(217,59,59,.55); z-index:1; }
+
+/* Líneas rojas SOLO en el eje de fechas (separan "12-ago" de "13-ago"), nunca en el
+   cuerpo con las filas de OT — viven en su propia franja sobre el eje de días/turnos. */
+.gantt-axis-lines-wrap{ position:relative; }
+.gantt-date-lines{ position:absolute; inset:0; pointer-events:none; z-index:2; }
+.gantt-date-line{ position:absolute; top:0; bottom:0; width:1.5px; background:#D93B3B; }
 
 .gantt-scroll{ position:relative; }
 .gantt-axis{ margin-left:0; }
@@ -659,10 +668,11 @@ input[type=range]::-webkit-slider-thumb{
   padding:15px 34px; border-radius:9px; cursor:pointer; letter-spacing:.02em;
   box-shadow:0 4px 18px rgba(232,89,12,.35); font-family:var(--sans);
 }
+.hero-secundarios{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; justify-content:center; }
 .btn-entrar-secundario{
-  display:inline-block; margin-top:12px; background:transparent; color:#fff;
+  display:inline-block; margin-top:0; background:transparent; color:#fff;
   border:1.5px solid rgba(255,255,255,.35); box-shadow:none; text-decoration:none;
-  padding:11px 28px; font-size:13px;
+  padding:11px 22px; font-size:13px; cursor:pointer; font-family:var(--sans); font-weight:700;
 }
 .hero-stats{ display:flex; gap:24px; margin-top:32px; flex-wrap:wrap; justify-content:center; }
 .hero-stat{ text-align:center; }
@@ -768,6 +778,7 @@ body.en-inicio nav.tabs{ display:none; }
 .sub-editor-inline{
   background: var(--navy-soft); border:1px solid var(--brand); border-radius:10px;
   padding:14px; margin:0 0 10px;
+  animation: sheetSlideUp .22s cubic-bezier(.22,.68,0,1);
 }
 .turno-select-row-label{ display:block; font-size:12px; color: var(--ink-muted); margin-bottom:6px; }
 .turno-select-inline{
