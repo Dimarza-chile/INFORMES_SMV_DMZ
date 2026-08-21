@@ -1484,6 +1484,22 @@ function buildFilaRecomendacionWord(ot, texto) {
   ]);
 }
 
+// Reemplaza el <w:t> de la celda hermana (el valor) de una fila tipo
+// "ETIQUETA: | valor" — usada en la tabla de Administradores. IMPORTANTE:
+// el patrón exige que "w:t" sea el nombre COMPLETO de la etiqueta (con "\s"
+// o ">" justo después), porque un patrón más laxo como /<w:t[^>]*>/ también
+// matchea por accidente contra "<w:tcPr>" o "<w:tbl>" (por el prefijo "w:t").
+function reemplazarValorCeldaWord(xml, labelIdx, texto) {
+  const labelTcEnd = xml.indexOf('</w:tc>', labelIdx);
+  const valueTcStart = xml.indexOf('<w:tc>', labelTcEnd);
+  const valueTcEnd = xml.indexOf('</w:tc>', valueTcStart) + '</w:tc>'.length;
+  const celda = xml.slice(valueTcStart, valueTcEnd);
+  const m = celda.match(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/);
+  if (!m) return xml;
+  const nuevaCelda = celda.slice(0, m.index) + m[0].slice(0, m[0].indexOf('>') + 1) + escXmlWord(texto) + '</w:t>' + celda.slice(m.index + m[0].length);
+  return xml.slice(0, valueTcStart) + nuevaCelda + xml.slice(valueTcEnd);
+}
+
 async function generateInformeWordReal(informe) {
   if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
   const resp = await fetch('./assets/plantilla-informe.docx');
@@ -1554,6 +1570,25 @@ async function generateInformeWordReal(informe) {
     }
   } catch (e) {
     console.error('No se pudo reemplazar el objetivo principal en el Word:', e);
+  }
+
+  // ---- Administrador de Contratos Centinela / SEMIVA: solo si el usuario
+  // cargó un valor propio — si no, se deja el que ya trae la plantilla. (Las
+  // filas de Supervisor Mecánico Día/Noche no se tocan: su estructura real
+  // tiene el texto de la etiqueta repartido en muchas celdas/filas fusionadas
+  // de forma poco confiable para editar por texto sin riesgo.) ----
+  try {
+    if (informe.adminCentinela && informe.adminCentinela.trim()) {
+      const centinelaLabelIdx = xml.indexOf('ADMINISTRADOR DE CONTRATOS ');
+      if (centinelaLabelIdx !== -1) xml = reemplazarValorCeldaWord(xml, centinelaLabelIdx, informe.adminCentinela.trim());
+    }
+    if (informe.adminSemiva && informe.adminSemiva.trim()) {
+      const centinelaLabelIdx2 = xml.indexOf('ADMINISTRADOR DE CONTRATOS ');
+      const semivaLabelIdx = xml.indexOf('ADMINISTRADOR DE CONTRATOS ', centinelaLabelIdx2 + 1);
+      if (semivaLabelIdx !== -1) xml = reemplazarValorCeldaWord(xml, semivaLabelIdx, informe.adminSemiva.trim());
+    }
+  } catch (e) {
+    console.error('No se pudieron reemplazar los administradores de contrato en el Word:', e);
   }
 
   // ---- Actividades de preparativos: mismo formato que la tabla de
