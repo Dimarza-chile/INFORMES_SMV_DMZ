@@ -456,11 +456,22 @@ input[type=range]::-webkit-slider-thumb{
 .turno-band{ position:absolute; top:0; bottom:0; }
 .turno-gridline{ position:absolute; top:0; bottom:0; width:1px; background:rgba(255,255,255,.09); }
 
-/* Líneas rojas SOLO en el eje de fechas (separan "12-ago" de "13-ago"), nunca en el
-   cuerpo con las filas de OT — viven en su propia franja sobre el eje de días/turnos. */
+/* Separadores de fecha SOLO en el eje de días (entre "12-ago" y "13-ago"), nunca en el
+   cuerpo con las filas de OT — viven en su propia franja sobre el eje de días/turnos.
+   La línea se desvanece detrás del texto de la etiqueta y solo se marca firme junto a la
+   franja de turno A/B, rematada con un puntito — una división discreta, no un tajo. */
 .gantt-axis-lines-wrap{ position:relative; }
-.gantt-date-lines{ position:absolute; inset:0; pointer-events:none; z-index:2; }
-.gantt-date-line{ position:absolute; top:0; bottom:0; width:1.5px; background:#D93B3B; }
+.gantt-date-lines{ position:absolute; inset:0; pointer-events:none; z-index:1; }
+.gantt-date-line{
+  position:absolute; top:1px; bottom:1px; width:1px;
+  background: linear-gradient(to bottom, transparent 0%, rgba(217,71,58,.5) 46%, rgba(217,71,58,.55) 100%);
+}
+.gantt-date-line::after{
+  content:''; position:absolute; top:0; left:50%; transform:translate(-50%,-60%);
+  width:4px; height:4px; border-radius:50%; background:#D9473A;
+  box-shadow: 0 0 0 3px rgba(217,71,58,.16);
+}
+.gantt-axis span{ z-index:2; background: var(--navy); padding:0 3px; border-radius:4px; }
 
 .gantt-scroll{ position:relative; }
 .gantt-axis{ margin-left:0; }
