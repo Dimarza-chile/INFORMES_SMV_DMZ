@@ -418,7 +418,7 @@ input[type=range]::-webkit-slider-thumb{
 /* ---------- v5: Gantt con nombre completo + fechas + grid de turnos ---------- */
 .gantt-rows-area{ position:relative; }
 .gantt-rows-wrap{ position:relative; z-index:2; }
-.gantt-row-full{ margin-bottom:22px; cursor:pointer; position:relative; z-index:2; padding:2px 0 2px 10px; border-left:3px solid transparent; border-radius:3px; transition: background .15s; }
+.gantt-row-full{ margin-bottom:22px; cursor:pointer; position:relative; z-index:2; padding:12px 0 2px 10px; border-left:3px solid transparent; border-radius:3px; transition: background .15s; }
 .gantt-row-name{ font-size:11.5px; font-weight:650; color:var(--ink); line-height:1.3; margin-bottom:1px; }
 .gantt-row-dates{ font-family:var(--mono); font-size:8.5px; color:var(--ink-dim); margin-bottom:4px; }
 .gantt-row-full .gantt-track{ height:16px; }
@@ -451,6 +451,7 @@ input[type=range]::-webkit-slider-thumb{
 .turno-grid-overlay{ position:absolute; inset:0; pointer-events:none; z-index:1; }
 .turno-band{ position:absolute; top:0; bottom:0; }
 .turno-gridline{ position:absolute; top:0; bottom:0; width:1px; background:rgba(255,255,255,.09); }
+.gantt-date-line{ position:absolute; top:0; bottom:0; width:1px; background:rgba(217,59,59,.55); z-index:1; }
 
 .gantt-scroll{ position:relative; }
 .gantt-axis{ margin-left:0; }
@@ -657,6 +658,11 @@ input[type=range]::-webkit-slider-thumb{
   background:var(--brand); border:none; color:#fff; font-size:14px; font-weight:700;
   padding:15px 34px; border-radius:9px; cursor:pointer; letter-spacing:.02em;
   box-shadow:0 4px 18px rgba(232,89,12,.35); font-family:var(--sans);
+}
+.btn-entrar-secundario{
+  display:inline-block; margin-top:12px; background:transparent; color:#fff;
+  border:1.5px solid rgba(255,255,255,.35); box-shadow:none; text-decoration:none;
+  padding:11px 28px; font-size:13px;
 }
 .hero-stats{ display:flex; gap:24px; margin-top:32px; flex-wrap:wrap; justify-content:center; }
 .hero-stat{ text-align:center; }

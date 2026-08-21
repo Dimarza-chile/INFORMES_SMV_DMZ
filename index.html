@@ -418,13 +418,10 @@
     </div>
     <div class="informes-row">
       <div class="btn-informe-sup-wrap" id="btnInformeActividadesWrap">
-        <button id="btnInformeActividades" class="btn-informe btn-informe-sup">Informe de actividades por supervisor</button>
+        <button id="btnInformeActividades" class="btn-informe btn-informe-sup">Resumen de actividades por supervisor</button>
         <button id="btnSupervisorArrow" class="btn-informe-arrow" type="button" title="Elegir supervisor" aria-haspopup="listbox" aria-expanded="false">▾</button>
         <div class="supervisor-dropdown" id="supervisorDropdown" role="listbox"></div>
       </div>
-      <button id="btnInformeGeneral" class="btn-informe principal">Informe general</button>
-      <button id="btnInformeTurno" class="btn-informe">Informe por turno</button>
-      <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-informe">📁 Certificados aparejos</a>
       <button id="btnAddPets" class="btn-informe" type="button">📄 + PETS</button>
     </div>
     <p class="eyebrow"><span class="conn-dot" id="connDot"></span><span id="connTxt">Conectando…</span></p>
@@ -555,14 +552,14 @@
           </div>
         </div>
 
-        <div id="subListPanel" style="display:none;">
-          <p class="rotulo-mini">Subactividades — toca una para cargar su avance</p>
-          <div id="subListRows"></div>
-        </div>
-
         <div class="turno-select-row">
           <label>Turno en que se registra este avance</label>
           <select id="turnoOverride"></select>
+        </div>
+
+        <div id="subListPanel" style="display:none;">
+          <p class="rotulo-mini">Subactividades — toca una para cargar su avance</p>
+          <div id="subListRows"></div>
         </div>
 
         <div class="pct-display" id="pctDisplay">0%</div>

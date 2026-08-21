@@ -1015,7 +1015,18 @@ function renderTurnoGrid(range) {
   allTurnos.forEach((t) => {
     lines.push(`<div class="turno-gridline" style="left:${xPct(t,range)}%;"></div>`);
   });
-  return `<div class="turno-grid-overlay">${bands.join('')}${lines.join('')}</div>`;
+
+  // Líneas rojas en cada cambio de fecha (medianoche), para distinguir de un vistazo
+  // dónde termina un día y empieza el siguiente en la línea de tiempo.
+  const dateLines = [];
+  let cur = new Date(range.start);
+  cur.setHours(0, 0, 0, 0);
+  while (cur <= range.end) {
+    if (cur >= range.start) dateLines.push(`<div class="gantt-date-line" style="left:${xPct(cur,range)}%;"></div>`);
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  return `<div class="turno-grid-overlay">${bands.join('')}${lines.join('')}${dateLines.join('')}</div>`;
 }
 
 function renderGanttOverview() {
@@ -2867,12 +2878,21 @@ function ensureInicioView() {
       <p class="hero-fechas" id="inicioFechas"></p>
       <p class="hero-desc" id="inicioDesc"></p>
       <button class="btn-entrar" id="btnEntrarLista">Lista de actividades</button>
+      <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📁 Certificados aparejos</a>
       <div class="hero-stats" id="inicioStats"></div>
     </div>`;
   main.appendChild(div);
   document.getElementById('btnEntrarLista').addEventListener('click', () => {
     irAVista('avance');
   });
+
+  const linkDrive = document.getElementById('linkDriveCertificados');
+  if (typeof DRIVE_CERTIFICADOS_URL !== 'undefined' && DRIVE_CERTIFICADOS_URL) {
+    linkDrive.href = DRIVE_CERTIFICADOS_URL;
+  } else {
+    linkDrive.style.opacity = '.5';
+    linkDrive.addEventListener('click', (e) => { e.preventDefault(); showToast('Aún no se ha cargado el link de Drive'); });
+  }
 }
 
 function openInicioView() {
@@ -3006,8 +3026,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const avanceMap = sheetCtx.direct ? state.liveOtAvance[sheetCtx.otNum] : getSubLive(sheetCtx.otNum, sheetCtx.nombre).avance;
       const cf = carryForward(avanceMap, sheetCtx.turnoIdx) || 0;
       const raw = (avanceMap && avanceMap[sheetCtx.turnoIdx] !== undefined) ? avanceMap[sheetCtx.turnoIdx] : cf;
-      document.getElementById('pctSlider').value = Math.round(raw*100);
-      document.getElementById('pctDisplay').textContent = Math.round(raw*100) + '%';
+      const pct = Math.round(raw * 100);
+      if (sheetCtx.esLista && sheetCtx.nombre) {
+        const sliderInline = document.querySelector('.pct-slider-inline');
+        const displayInline = document.querySelector('.pct-display-inline');
+        if (sliderInline) sliderInline.value = pct;
+        if (displayInline) displayInline.textContent = pct + '%';
+      } else {
+        document.getElementById('pctSlider').value = pct;
+        document.getElementById('pctDisplay').textContent = pct + '%';
+      }
     });
     document.getElementById('sheetBackdrop').addEventListener('click', (e) => { if (e.target.id === 'sheetBackdrop') closeSheet(); });
     document.getElementById('sheetDelete').addEventListener('click', async () => {
@@ -3113,15 +3141,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target.id === 'petsBackdrop') document.getElementById('petsBackdrop').classList.remove('open');
     });
     document.getElementById('petsSave').addEventListener('click', guardarPetsAdmin);
-
-    const linkDrive = document.getElementById('linkDriveCertificados');
-    if (typeof DRIVE_CERTIFICADOS_URL !== 'undefined' && DRIVE_CERTIFICADOS_URL) {
-      linkDrive.href = DRIVE_CERTIFICADOS_URL;
-    } else {
-      linkDrive.style.opacity = '.5';
-      linkDrive.addEventListener('click', (e) => { e.preventDefault(); showToast('Aún no se ha cargado el link de Drive'); });
-    }
-  }, 'pets-admin-drive');
+  }, 'pets-admin');
 
   safeInit(() => {
     document.querySelectorAll('[data-avview]').forEach((btn) => {
@@ -3422,10 +3442,10 @@ function abrirDetalleOt(otNum) {
 
 function mostrarListaSubactividades(ot) {
   document.getElementById('subListPanel').style.display = 'block';
-  document.getElementById('turnoOverride').closest('.turno-select-row').style.display = 'none';
   document.getElementById('pctDisplay').style.display = 'none';
   document.getElementById('pctSlider').style.display = 'none';
   document.querySelector('.quick-pcts').style.display = 'none';
+  populateTurnoOverride(turnoActualIdx(), state.liveOtAvance[ot.otNum]);
 
   const cont = document.getElementById('subListRows');
   cont.innerHTML = ot.subactividades.map((s) => renderSubRow(ot, s)).join('');
@@ -3443,7 +3463,12 @@ function toggleEditorInlineSub(cont, ot, otNum, nombre, filaEl) {
   const yaEraDeEstaFila = existente && existente.dataset.nombre === nombre;
   if (existente) existente.remove();
   cont.querySelectorAll('.sub-row.abierta').forEach((r) => r.classList.remove('abierta'));
-  if (yaEraDeEstaFila) return; // toco de nuevo la misma fila: solo cerrar
+  if (yaEraDeEstaFila) {
+    // Se cerró la fila: el selector de turno vuelve a reflejar la OT completa.
+    sheetCtx = { otNum, nombre: null, turnoIdx: turnoActualIdx(), direct: true, manual: false, esLista: true };
+    populateTurnoOverride(turnoActualIdx(), state.liveOtAvance[otNum]);
+    return;
+  }
 
   filaEl.classList.add('abierta');
 
@@ -3454,12 +3479,15 @@ function toggleEditorInlineSub(cont, ot, otNum, nombre, filaEl) {
   const raw = (live.avance && live.avance[tIdx] !== undefined) ? live.avance[tIdx] : cf;
   const pctInicial = Math.round(raw * 100);
 
+  // El turno se elige con el selector compartido de arriba (#turnoOverride, debajo de
+  // Supervisor A/B) — aquí solo queda el % y los botones rápidos de esta subactividad.
+  sheetCtx = { otNum, nombre, turnoIdx: tIdx, direct: false, manual: false, esLista: true };
+  populateTurnoOverride(tIdx, live.avance);
+
   const div = document.createElement('div');
   div.className = 'sub-editor-inline';
   div.dataset.nombre = nombre;
   div.innerHTML = `
-    <label class="turno-select-row-label">Turno en que se registra este avance</label>
-    <select class="turno-select-inline"></select>
     <div class="pct-display-inline">${pctInicial}%</div>
     <input type="range" class="pct-slider-inline" min="0" max="100" step="5" value="${pctInicial}">
     <div class="quick-pcts-inline">
@@ -3468,16 +3496,10 @@ function toggleEditorInlineSub(cont, ot, otNum, nombre, filaEl) {
     </div>`;
   filaEl.insertAdjacentElement('afterend', div);
 
-  const selectTurno = div.querySelector('.turno-select-inline');
-  selectTurno.innerHTML = SEED_DATA.turnoLabels.map((lab, i) => {
-    const marcado = live.avance && live.avance[i] !== undefined;
-    const etiqueta = lab + (i === tIdx ? ' (ahora)' : '') + (marcado ? ' ✓' : '');
-    return `<option value="${i}" ${i === tIdx ? 'selected' : ''}>${etiqueta}</option>`;
-  }).join('');
-
   async function guardarInline() {
     try {
-      await saveSubAvance(otNum, nombre, parseInt(selectTurno.value, 10), parseInt(slider.value, 10) / 100);
+      const turnoSel = parseInt(document.getElementById('turnoOverride').value, 10);
+      await saveSubAvance(otNum, nombre, turnoSel, parseInt(slider.value, 10) / 100);
       showToast('Guardado ✓');
       const filaPct = filaEl.querySelector('.sub-pct');
       if (filaPct) filaPct.textContent = slider.value + '%';
@@ -3502,20 +3524,11 @@ function toggleEditorInlineSub(cont, ot, otNum, nombre, filaEl) {
       guardarInline();
     });
   });
-  selectTurno.addEventListener('change', () => {
-    const idx = parseInt(selectTurno.value, 10);
-    const cfSel = carryForward(live.avance, idx) || 0;
-    const rawSel = (live.avance && live.avance[idx] !== undefined) ? live.avance[idx] : cfSel;
-    slider.value = Math.round(rawSel * 100);
-    display.textContent = slider.value + '%';
-  });
 }
 
 function ocultarListaSubactividades() {
   const panel = document.getElementById('subListPanel');
   if (panel) panel.style.display = 'none';
-  const turnoRow = document.getElementById('turnoOverride');
-  if (turnoRow) turnoRow.closest('.turno-select-row').style.display = '';
   document.getElementById('pctDisplay').style.display = '';
   document.getElementById('pctSlider').style.display = '';
   const qp = document.querySelector('.quick-pcts');
@@ -3593,42 +3606,29 @@ document.addEventListener('DOMContentLoaded', () => {
 // (respeta el filtro de supervisor activo) e Informe general.
 // ============================================================
 
+// Solo el primer nombre de cada supervisor (ej. "Juan Pérez Soto" -> "Juan").
+function primerNombre(nombreCompleto) {
+  return (nombreCompleto || '').trim().split(/\s+/)[0] || '';
+}
+
 function actualizarEtiquetaInformeActividades() {
   const btn = document.getElementById('btnInformeActividades');
   if (!btn) return;
   const par = state.filtroSupervisor;
   btn.textContent = par
-    ? `Informe de actividades por supervisores ${par.a} y ${par.b}`
-    : 'Informe de actividades por supervisor';
+    ? `Resumen de actividades por ${primerNombre(par.a)} y ${primerNombre(par.b)}`
+    : 'Resumen de actividades por supervisor';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   safeInit(() => {
     const btnAct = document.getElementById('btnInformeActividades');
-    const btnGen = document.getElementById('btnInformeGeneral');
     if (btnAct) {
       btnAct.addEventListener('click', async () => {
         btnAct.disabled = true; const txt = btnAct.textContent; btnAct.textContent = 'Generando…';
         try { await generateInformeActividadesPdf(state.filtroSupervisor); }
         catch (e) { console.error(e); showToast('No se pudo generar el informe'); }
         btnAct.disabled = false; btnAct.textContent = txt;
-      });
-    }
-    if (btnGen) {
-      btnGen.addEventListener('click', async () => {
-        btnGen.disabled = true; btnGen.textContent = 'Generando…';
-        try { await generateInformeGeneralPdf(); }
-        catch (e) { console.error(e); showToast('No se pudo generar el informe'); }
-        btnGen.disabled = false; btnGen.textContent = 'Informe general';
-      });
-    }
-    const btnTurno = document.getElementById('btnInformeTurno');
-    if (btnTurno) {
-      btnTurno.addEventListener('click', async () => {
-        btnTurno.disabled = true; btnTurno.textContent = 'Generando…';
-        try { await generateInformeTurnoPdf(); }
-        catch (e) { console.error(e); showToast('No se pudo generar el informe'); }
-        btnTurno.disabled = false; btnTurno.textContent = 'Informe por turno';
       });
     }
   }, 'botones-informes');
