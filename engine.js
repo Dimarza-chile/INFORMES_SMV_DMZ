@@ -1141,6 +1141,58 @@ async function generateInformeWordReal(informe) {
     xml = xml.slice(0, puntoInsercion) + fotosRowsXml + xml.slice(puntoInsercion);
   }
 
+  // ---- Curva S: reemplaza el gráfico de ejemplo que trae la plantilla en
+  // "CRONOGRAMA DE EJECUCIÓN DEL SERVICIO" por una imagen con los datos
+  // reales actuales (mismo diseño que el botón "Imagen" de la Curva S: eje,
+  // leyenda con línea punteada/continua real, y sus 3 KPI's). Es un gráfico
+  // nativo de Word/Excel en la plantilla — no se edita esa parte (es delicada
+  // y no es lo que se pidió), se reemplaza solo el dibujo por una imagen. Si
+  // no se encuentra (la editaron o la sección no existe), se sigue sin esto
+  // — nunca debe tumbar la generación del resto del informe. ----
+  try {
+    const cronogramaAnclaIdx = xml.indexOf('En base a la Carta Gantt de');
+    if (cronogramaAnclaIdx !== -1) {
+      const drawingStartIdx = xml.indexOf('<w:drawing', cronogramaAnclaIdx);
+      if (drawingStartIdx !== -1 && drawingStartIdx - cronogramaAnclaIdx < 6000) {
+        const drawingEndIdx = xml.indexOf('</w:drawing>', drawingStartIdx) + '</w:drawing>'.length;
+
+        const { svg, leyenda, kpisHtml } = buildCurvaSVisual({ W: 620, H: 360 });
+        const wrapCurva = document.createElement('div');
+        wrapCurva.style.cssText = 'position:fixed; left:-10000px; top:0; width:900px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:16px 22px;';
+        wrapCurva.innerHTML = `<div style="display:flex; align-items:flex-start; gap:20px;">
+          <div style="flex:none;">${svg}</div>
+          <div style="width:200px; flex:none; padding-top:8px;">
+            ${leyenda}
+            <div style="margin-top:14px; padding-top:12px; border-top:1px solid #E2E2DD;">${kpisHtml}</div>
+          </div>
+        </div>`;
+        document.body.appendChild(wrapCurva);
+        const canvasCurva = await html2canvas(wrapCurva, { scale: 2, backgroundColor: '#ffffff' });
+        wrapCurva.remove();
+
+        const outBlobCurva = await new Promise((resolve) => canvasCurva.toBlob(resolve, 'image/png'));
+        if (outBlobCurva) {
+          const bytesCurva = new Uint8Array(await outBlobCurva.arrayBuffer());
+          // Mismo ancho aproximado que el gráfico nativo que reemplaza (~24cm),
+          // para que siga cabiendo en una sola página junto al encabezado y el
+          // párrafo de introducción de esta sección.
+          const cxCurva = Math.round(24 * INFORME_EMU_POR_CM);
+          const cyCurva = Math.round(cxCurva * (canvasCurva.height / canvasCurva.width));
+
+          contadorImagen++;
+          const nombreArchivoCurva = `curvaS_${Date.now()}.png`;
+          const rIdCurva = `rId${nextRid++}`;
+          zip.file(`word/media/${nombreArchivoCurva}`, bytesCurva);
+          nuevasRelsXml += `<Relationship Id="${rIdCurva}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivoCurva}"/>`;
+          const drawingCurvaXml = buildDrawingXmlWord(rIdCurva, cxCurva, cyCurva, 950000 + contadorImagen);
+          xml = xml.slice(0, drawingStartIdx) + drawingCurvaXml + xml.slice(drawingEndIdx);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('No se pudo incrustar la Curva S en el Word:', e);
+  }
+
   // Verificación antes de entregar el archivo: si el XML quedó mal formado
   // (una etiqueta sin cerrar, algo así), mejor fallar acá con un error claro
   // que entregar un .docx que Word no pueda abrir.
@@ -1535,17 +1587,19 @@ function renderChart() {
     : 'Aún no hay avance reportado';
 }
 
-// Genera UNA imagen (PNG, no PDF) con la Curva S estilo Excel + sus KPI's —
-// para compartir directo, no para imprimir. Redibuja el gráfico más ancho y
-// con la leyenda al costado (como en una hoja de cálculo real), reutilizando
-// los mismos datos ya calculados por renderChart(). Siempre muestra las 4
-// curvas completas, sin importar qué haya ocultado el usuario tocando la
-// leyenda en pantalla — la imagen exportada es la versión "oficial" completa.
-async function generateCurvaSImagen() {
+// Construye el gráfico SVG + leyenda + KPI's de la Curva S — compartido entre
+// la imagen descargable y el que se incrusta en el Word, para que ambos se
+// vean exactamente igual. La leyenda usa un tramo de línea (punteada o
+// continua, según cómo se vea REALMENTE esa curva) con su punto al centro,
+// en vez de un simple círculo de color — así no engaña sobre cuál línea es
+// cuál. Los 3 KPI's son los más relevantes junto a una Curva S: el índice de
+// cumplimiento de programa (equivalente al SPI de control de proyectos),
+// cuánto creció el alcance por emergentes, y cuánto se canceló.
+function buildCurvaSVisual({ W = 600, H = 380 } = {}) {
   const curveData = state.lastCurveData || computeCurve();
   const { labels, percentPlan, percentReal, alcanceEmerg, percentRealTotal, kpis } = curveData;
 
-  const W = 600, H = 380, padL = 48, padR = 16, padT = 20, padB = 52;
+  const padL = 48, padR = 16, padT = 20, padB = 52;
   const n = labels.length;
   const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
   const yMax = 1.25;
@@ -1596,61 +1650,65 @@ async function generateCurvaSImagen() {
     ${dotsFor(percentRealTotal, EXCEL_TOTAL)}
   </svg>`;
 
+  // Muestra de leyenda: un tramo de línea igual al de la curva real (punteada
+  // o continua) con su punto al centro — no solo un círculo de color suelto.
+  function muestraLinea(color, punteada) {
+    return `<svg width="30" height="14" viewBox="0 0 30 14" style="flex:none;">
+      <line x1="1" y1="7" x2="29" y2="7" stroke="${color}" stroke-width="2.5" ${punteada ? 'stroke-dasharray="5,3.5"' : ''}/>
+      <circle cx="15" cy="7" r="3" fill="${color}"/>
+    </svg>`;
+  }
   const leyenda = [
-    [EXCEL_PLAN, '% Avance Planificado'],
-    [EXCEL_REAL, '% Avance Real'],
-    [EXCEL_ALCANCE, 'Alcance Emergentes'],
-    [EXCEL_TOTAL, 'Real Total (+ Emergentes)'],
-  ].map(([color, label]) => `
+    [EXCEL_PLAN, '% Avance Planificado', false],
+    [EXCEL_REAL, '% Avance Real', false],
+    [EXCEL_ALCANCE, 'Alcance Emergentes', true],
+    [EXCEL_TOTAL, 'Real Total (+ Emergentes)', false],
+  ].map(([color, label, punteada]) => `
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-      <span style="width:11px; height:11px; border-radius:50%; background:${color}; flex:none;"></span>
-      <span style="font-size:12.5px; color:#3A3A3A;">${escBit(label)}</span>
+      ${muestraLinea(color, punteada)}
+      <span style="font-size:12px; color:#3A3A3A;">${escBit(label)}</span>
     </div>`).join('');
 
-  // Índice de cumplimiento de programa (equivalente a SPI = Real / Plan del
-  // control de proyectos): el indicador más estándar para saber, de un
-  // vistazo, si la parada va adelantada o atrasada respecto al plan — es el
-  // que más se usa junto a una Curva S y antes no estaba en la imagen.
+  // Índice de cumplimiento de programa (equivalente al SPI = Real / Plan del
+  // control de proyectos) — el indicador más estándar para saber, de un
+  // vistazo, si la parada va adelantada o atrasada respecto al plan.
   const idxsConDato = percentReal.map((v, i) => (v !== null && v !== undefined ? i : -1)).filter((i) => i >= 0);
   const lastIdx = idxsConDato.length ? idxsConDato[idxsConDato.length - 1] : undefined;
   const realActual = lastIdx !== undefined ? percentReal[lastIdx] : null;
   const planActual = lastIdx !== undefined ? percentPlan[lastIdx] : null;
   const indiceCumplimiento = (realActual !== null && planActual > 0) ? realActual / planActual : null;
-
   const nTotalOts = kpis.nTotalVigentes + kpis.nCanceladas;
   const pctCanceladoConteo = nTotalOts ? kpis.nCanceladas / nTotalOts : 0;
 
-  function tarjetaKpi(label, value, destacada) {
-    return `<div style="flex:1; background:${destacada ? '#EAF3FF' : '#F4F4F2'}; border:1px solid ${destacada ? '#BBD6F5' : '#E2E2DD'}; border-radius:10px; padding:12px 14px;">
-      <div style="font-size:10px; color:#8A8A90; text-transform:uppercase; letter-spacing:.04em;">${escBit(label)}</div>
-      <div style="font-size:19px; font-weight:800; color:#1A1A2E; margin-top:3px;">${escBit(value)}</div>
-    </div>`;
-  }
+  const kpisHtml = [
+    ['Índice de Cumplimiento', indiceCumplimiento !== null ? `${(indiceCumplimiento * 100).toFixed(0)}%` : '—'],
+    ['Crecim. Alcance', `${(kpis.pctCrecimiento * 100).toFixed(1)}%`],
+    ['Cancelado', `${kpis.nCanceladas} / ${nTotalOts} (${(pctCanceladoConteo * 100).toFixed(0)}%)`],
+  ].map(([label, value]) => `
+    <div style="background:#F4F4F2; border:1px solid #E2E2DD; border-radius:8px; padding:9px 11px; margin-bottom:8px;">
+      <div style="font-size:9px; color:#8A8A90; text-transform:uppercase; letter-spacing:.03em;">${escBit(label)}</div>
+      <div style="font-size:16px; font-weight:800; color:#1A1A2E; margin-top:2px;">${escBit(value)}</div>
+    </div>`).join('');
 
-  const kpiFilaPrincipal = [
-    tarjetaKpi('Avance Real vs Plan', realActual !== null ? `${(realActual * 100).toFixed(1)}% / ${(planActual * 100).toFixed(1)}%` : 'Sin datos', true),
-    tarjetaKpi('Índice de Cumplimiento', indiceCumplimiento !== null ? `${(indiceCumplimiento * 100).toFixed(0)}%` : '—', true),
-    tarjetaKpi('Crecim. Alcance', `${(kpis.pctCrecimiento * 100).toFixed(1)}%`),
-    tarjetaKpi('Var. Neta', `${kpis.netoPct >= 0 ? '+' : ''}${(kpis.netoPct * 100).toFixed(1)}%`),
-    tarjetaKpi('Cancelado', `${kpis.nCanceladas} / ${nTotalOts} (${(pctCanceladoConteo * 100).toFixed(0)}%)`),
-  ].join('');
+  return { svg, leyenda, kpisHtml };
+}
 
-  const kpiFilaSecundaria = [
-    tarjetaKpi('Completadas', `${kpis.nCompletadas} / ${kpis.nTotalVigentes} (${(kpis.pctCompletadas * 100).toFixed(0)}%)`),
-    tarjetaKpi('En curso', `${kpis.nEnCurso} / ${kpis.nTotalVigentes} (${(kpis.pctEnCurso * 100).toFixed(0)}%)`),
-    tarjetaKpi('No iniciadas', `${kpis.nNoIniciadas} / ${kpis.nTotalVigentes} (${(kpis.pctNoIniciadas * 100).toFixed(0)}%)`),
-  ].join('');
+// Genera UNA imagen (PNG, no PDF) con la Curva S estilo Excel + sus KPI's —
+// para compartir directo, no para imprimir.
+async function generateCurvaSImagen() {
+  const { svg, leyenda, kpisHtml } = buildCurvaSVisual({ W: 600, H: 380 });
 
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed; left:-10000px; top:0; width:900px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:30px 34px;';
+  wrap.style.cssText = 'position:fixed; left:-10000px; top:0; width:860px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:30px 34px;';
   wrap.innerHTML = `
     <h2 style="text-align:center; font-size:19px; font-weight:800; margin:0 0 20px; line-height:1.35;">Curva S - ${escBit(SEED_DATA.paradaNombre)} (Planificado vs Real + Emergentes)</h2>
     <div style="display:flex; align-items:flex-start; gap:22px;">
       <div style="flex:none;">${svg}</div>
-      <div style="width:190px; flex:none; padding-top:20px;">${leyenda}</div>
+      <div style="width:200px; flex:none; padding-top:20px;">
+        ${leyenda}
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid #E2E2DD;">${kpisHtml}</div>
+      </div>
     </div>
-    <div style="display:flex; gap:10px; margin-top:22px;">${kpiFilaPrincipal}</div>
-    <div style="display:flex; gap:10px; margin-top:10px;">${kpiFilaSecundaria}</div>
   `;
   document.body.appendChild(wrap);
 
