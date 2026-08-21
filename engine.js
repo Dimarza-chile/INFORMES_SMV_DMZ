@@ -44,6 +44,7 @@ function initFirebase() {
     listenFotosActividad();
     listenBitacora();
     listenPetsDinamicos();
+    listenInformes();
     setConn(true);
   } catch (e) {
     console.error('Firebase no configurado todavía', e);
@@ -676,6 +677,7 @@ function openSheet(otNum, nombre) {
 
   populateTurnoOverride(tIdx, live.avance);
   renderPetsBlock(otNum);
+  renderEstadoOtBlock(otNum);
   resetComentarioForm();
   renderComentarioFeed(otNum);
   renderGanttActividad(otNum);
@@ -712,6 +714,82 @@ function listenPetsDinamicos() {
     snap.forEach((doc) => state.petsDinamicos.push({ id: doc.id, ...doc.data() }));
     if (sheetCtx) renderPetsBlock(sheetCtx.otNum);
   }, (err) => console.error('pets error:', err));
+}
+
+// ---- Informes: agrupar N actividades bajo un nombre (ej. "Informe N°3") y adjuntar
+// su Word/PDF ya editado, para tenerlo a un toque desde la portada. El plan es que de
+// UN Gantt completo salgan VARIOS informes — cada uno es solo un subconjunto de OTs con
+// un archivo asociado, nada más. Mismo patrón que el PETS (subida a Storage + Firestore). ----
+function informesCollection() { return state.db.collection('paradas').doc(PARADA_ID).collection('informes'); }
+state.informes = [];
+let informePendingOts = [];
+
+function listenInformes() {
+  informesCollection().onSnapshot((snap) => {
+    state.informes = [];
+    snap.forEach((doc) => state.informes.push({ id: doc.id, ...doc.data() }));
+    renderInformesListaInicio();
+  }, (err) => console.error('informes error:', err));
+}
+
+function renderInformesListaInicio() {
+  const wrap = document.getElementById('inicioInformesList');
+  if (!wrap) return;
+  wrap.innerHTML = state.informes.map((inf) => inf.url
+    ? `<a href="${inf.url}" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📝 ${escBit(inf.nombre)}</a>`
+    : `<span class="btn-entrar btn-entrar-secundario" style="opacity:.6; cursor:default;" title="Sin archivo adjunto todavía">📝 ${escBit(inf.nombre)} (sin archivo)</span>`
+  ).join('');
+}
+
+function abrirModalInforme() {
+  document.getElementById('informeNombre').value = '';
+  document.getElementById('informeArchivo').value = '';
+  informePendingOts = [];
+  const wrap = document.getElementById('informeOtsList');
+  const areas = [...new Set(allOts().map((o) => o.area))];
+  wrap.innerHTML = areas.map((area) => `
+    <div style="font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--brand); margin:8px 0 4px;">${area}</div>
+    ${allOts().filter((o) => o.area === area).map((ot) => `
+      <label style="display:flex; align-items:flex-start; gap:8px; padding:6px 2px; border-bottom:1px solid var(--line); cursor:pointer;">
+        <input type="checkbox" class="informe-ot-check" data-ot="${ot.otNum}" style="width:18px; height:18px; margin-top:1px; flex:none; accent-color:var(--brand);">
+        <span style="font-size:12.5px; color:var(--ink); line-height:1.4;">${ot.manual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`}</span>
+      </label>`).join('')}
+  `).join('');
+  wrap.querySelectorAll('.informe-ot-check').forEach((chk) => {
+    chk.addEventListener('change', () => {
+      const v = chk.dataset.ot;
+      if (chk.checked) informePendingOts.push(v);
+      else informePendingOts = informePendingOts.filter((x) => x !== v);
+    });
+  });
+  document.getElementById('informeBackdrop').classList.add('open');
+}
+
+async function guardarInformeAdmin() {
+  const nombre = document.getElementById('informeNombre').value.trim();
+  const file = document.getElementById('informeArchivo').files[0];
+  if (!nombre) { showToast('Escribe el nombre del informe'); return; }
+  if (!informePendingOts.length) { showToast('Elige al menos una actividad'); return; }
+  const btn = document.getElementById('informeSave');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    let url = '', archivoNombre = '';
+    if (file) {
+      const storage = firebase.storage();
+      const path = `paradas/${PARADA_ID}/informes/${Date.now()}_${file.name}`;
+      const ref = storage.ref(path);
+      await ref.put(file);
+      url = await ref.getDownloadURL();
+      archivoNombre = file.name;
+    }
+    await informesCollection().add({ nombre, url, archivoNombre, otNums: informePendingOts, createdAt: Date.now() });
+    showToast('Informe guardado ✓');
+    document.getElementById('informeBackdrop').classList.remove('open');
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo guardar el informe — revisa tu conexión');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar informe';
 }
 
 function renderPetsBlock(otNum) {
@@ -805,6 +883,7 @@ function openSheetDirect(otNum) {
   document.getElementById('sheetMeta').textContent = (ot.pesoPlanHH ? `${ot.pesoPlanHH.toFixed(1)} HH estimadas` : 'Actividad emergente') + (ot.cuadrilla ? ' · Cuadrilla ' + cuadrillaLabel(ot.cuadrilla) : '') + (getOtSupervisor(ot.otNum) ? ' · Sup: ' + getOtSupervisor(ot.otNum) : '');
   document.getElementById('sheetDelete').style.display = isManual ? 'block' : 'none';
   renderPetsBlock(key);
+  renderEstadoOtBlock(key);
 
   const avanceMap = state.liveOtAvance[key];
   const cf = carryForward(avanceMap, tIdx) || 0;
@@ -824,6 +903,20 @@ function openSheetDirect(otNum) {
   renderProtocoloPanel(null);
   document.getElementById('sheetBackdrop').classList.add('open');
   document.getElementById('sheetBackdrop').classList.add('tiene-seleccion');
+}
+
+// Refleja el estado (Vigente/Cancelada/En pausa) de la OT abierta en el detalle —
+// mismo select y motivo que ya existía en la vista de lista, ahora también visible
+// desde el detalle (Gantt), que es por donde entra la mayoría en celular.
+function renderEstadoOtBlock(otNum) {
+  const sel = document.getElementById('estadoOtSelect');
+  const motivoRow = document.getElementById('motivoOtRow');
+  const motivoTa = document.getElementById('motivoOtTextarea');
+  if (!sel) return;
+  const estado = getOtEstado(otNum);
+  sel.value = [...sel.options].some((o) => o.value === estado) ? estado : 'Vigente';
+  motivoTa.value = getOtMotivo(otNum);
+  motivoRow.style.display = estado.startsWith('Cancelada') ? 'block' : 'none';
 }
 
 function populateTurnoOverride(selectedIdx, avanceMap) {
@@ -2876,9 +2969,11 @@ function ensureInicioView() {
       <p class="hero-fechas" id="inicioFechas"></p>
       <p class="hero-desc" id="inicioDesc"></p>
       <button class="btn-entrar" id="btnEntrarLista">Lista de actividades</button>
+      <div id="inicioInformesList" class="hero-secundarios"></div>
       <div class="hero-secundarios">
         <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📁 Certificados aparejos</a>
         <button id="btnAddPetsInicio" type="button" class="btn-entrar btn-entrar-secundario">📄 + PETS</button>
+        <button id="btnAddInformeInicio" type="button" class="btn-entrar btn-entrar-secundario">📝 + Informe</button>
       </div>
       <div class="hero-stats" id="inicioStats"></div>
     </div>`;
@@ -2887,6 +2982,7 @@ function ensureInicioView() {
     irAVista('avance');
   });
   document.getElementById('btnAddPetsInicio').addEventListener('click', abrirModalPets);
+  document.getElementById('btnAddInformeInicio').addEventListener('click', abrirModalInforme);
 
   const linkDrive = document.getElementById('linkDriveCertificados');
   if (typeof DRIVE_CERTIFICADOS_URL !== 'undefined' && DRIVE_CERTIFICADOS_URL) {
@@ -3065,6 +3161,32 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('pctDisplay').textContent = pct + '%';
       }
     });
+    document.getElementById('estadoOtSelect').addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('estadoOtSelect').addEventListener('change', async (e) => {
+      if (!sheetCtx) return;
+      const isCancel = e.target.value.startsWith('Cancelada');
+      document.getElementById('motivoOtRow').style.display = isCancel ? 'block' : 'none';
+      try {
+        await saveOtEstado(sheetCtx.otNum, e.target.value);
+        showToast('Estado actualizado');
+      } catch (err) {
+        console.error(err);
+        showToast('No se pudo guardar el estado — revisa tu conexión');
+      }
+    });
+    document.getElementById('motivoOtTextarea').addEventListener('blur', async (e) => {
+      if (!sheetCtx) return;
+      const limpio = limpiarComentario(e.target.value);
+      e.target.value = limpio;
+      const estadoSel = document.getElementById('estadoOtSelect').value;
+      try {
+        await saveOtEstado(sheetCtx.otNum, estadoSel, limpio);
+        if (limpio) showToast('Motivo guardado');
+      } catch (err) {
+        console.error(err);
+        showToast('No se pudo guardar el motivo — revisa tu conexión');
+      }
+    });
     document.getElementById('sheetBackdrop').addEventListener('click', (e) => { if (e.target.id === 'sheetBackdrop') closeSheet(); });
     document.getElementById('sheetDelete').addEventListener('click', async () => {
       if (!sheetCtx || !sheetCtx.manual) return;
@@ -3169,6 +3291,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('petsSave').addEventListener('click', guardarPetsAdmin);
   }, 'pets-admin');
+
+  safeInit(() => {
+    document.getElementById('informeCancel').addEventListener('click', () => document.getElementById('informeBackdrop').classList.remove('open'));
+    document.getElementById('informeBackdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'informeBackdrop') document.getElementById('informeBackdrop').classList.remove('open');
+    });
+    document.getElementById('informeSave').addEventListener('click', guardarInformeAdmin);
+  }, 'informes-admin');
 
   safeInit(() => {
     document.querySelectorAll('[data-avview]').forEach((btn) => {
@@ -3449,6 +3579,7 @@ function abrirDetalleOt(otNum) {
     (ot.cuadrilla ? ' · Cuadrilla ' + cuadrillaLabel(ot.cuadrilla) : '');
   document.getElementById('sheetDelete').style.display = 'none';
   renderPetsBlock(key);
+  renderEstadoOtBlock(key);
 
   renderGanttActividad(key);
   poblarSupervisoresPanel(key);

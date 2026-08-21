@@ -589,6 +589,22 @@
           </div>
         </div>
 
+        <div class="ot-status-row">
+          <label>Estado de la OT</label>
+          <select id="estadoOtSelect">
+            <option value="Vigente">Vigente</option>
+            <option value="Cancelada (falta de tiempo)">Cancelada (falta de tiempo)</option>
+            <option value="Cancelada (falta de componentes)">Cancelada (falta de componentes)</option>
+            <option value="Cancelada (en coordinación con sup Centinela se canceló)">Cancelada (en coordinación con sup Centinela se canceló)</option>
+            <option value="Cancelada (otro motivo)">Cancelada (otro motivo)</option>
+            <option value="En pausa">En pausa</option>
+          </select>
+          <div class="motivo-row" id="motivoOtRow" style="display:none;">
+            <label>Cuéntanos qué pasó (se ordena solo al guardar)</label>
+            <textarea id="motivoOtTextarea" class="motivo-textarea" placeholder="Ej: no alcanzó el tiempo pq llegó tarde el repuesto"></textarea>
+          </div>
+        </div>
+
         <div class="turno-select-row">
           <label>Turno en que se registra este avance</label>
           <select id="turnoOverride"></select>
@@ -676,6 +692,29 @@
     <div class="sheet-actions">
       <button class="btn ghost" id="petsCancel">Cancelar</button>
       <button class="btn primary" id="petsSave">Guardar PETS</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: crear un informe (agrupar varias actividades + adjuntar su Word/PDF) -->
+<div class="sheet-backdrop" id="informeBackdrop">
+  <div class="sheet">
+    <div class="handle"></div>
+    <h2>Nuevo informe</h2>
+    <p class="meta">Agrupa las actividades que forman este informe (ej. "Informe N°3") y adjunta su Word o PDF. Queda disponible como botón en la portada.</p>
+
+    <label style="display:block; font-size:12px; color:var(--ink-muted); margin:14px 0 6px;">Nombre del informe</label>
+    <input type="text" id="informeNombre" placeholder="Ej: Informe N°3 — Cambio de Ductos y Válvulas" style="width:100%; padding:12px; border-radius:10px; background:var(--navy-soft); color:var(--ink); border:1px solid var(--line); font-family:var(--sans); font-size:14px; margin-bottom:14px;">
+
+    <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Archivo (Word o PDF, opcional)</label>
+    <input type="file" id="informeArchivo" accept=".doc,.docx,application/pdf" style="width:100%; margin-bottom:14px;">
+
+    <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Actividades que componen este informe</label>
+    <div id="informeOtsList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:18px;"></div>
+
+    <div class="sheet-actions">
+      <button class="btn ghost" id="informeCancel">Cancelar</button>
+      <button class="btn primary" id="informeSave">Guardar informe</button>
     </div>
   </div>
 </div>
