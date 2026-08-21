@@ -4,6 +4,8 @@
 
 const state = {
   filtroSupervisor: null,
+  filtroInforme: null, // array de otNum (string) cuando se entra a "Actividades" desde un informe
+  informeActivo: null, // el informe abierto en la vista de detalle
   liveSubs: {},
   liveOtEstado: {},
   liveOtMotivo: {},
@@ -378,16 +380,25 @@ function computeCurve() {
 
 function fmtPct(v) { return v === null || v === undefined ? '—' : Math.round(v * 100) + '%'; }
 
+// Combina los dos filtros de actividades que puede haber activos a la vez:
+// por par de supervisor (ya existía) y por informe (nuevo — al entrar a
+// "Actividades" desde un informe, solo se ven las OT que ese informe
+// agrupa). Se usa en la vista Lista y en la Línea de tiempo.
+function otsVisibles() {
+  let ots = allOts();
+  if (state.filtroSupervisor) ots = ots.filter((o) => otCoincideConParSupervisor(o, state.filtroSupervisor));
+  if (state.filtroInforme) ots = ots.filter((o) => state.filtroInforme.includes(String(o.otNum)));
+  return ots;
+}
+
 function renderList() {
   const wrap = document.getElementById('otList');
   const filtroSup = state.filtroSupervisor;
-  const otsFiltradas = filtroSup
-    ? allOts().filter((o) => otCoincideConParSupervisor(o, filtroSup))
-    : allOts();
+  const otsFiltradas = otsVisibles();
   const areas = [...new Set(otsFiltradas.map((o) => o.area))];
   let html = '';
-  if (filtroSup && otsFiltradas.length === 0) {
-    wrap.innerHTML = '<p style="padding:16px; color:var(--ink-muted); font-size:12.5px;">Ese par de supervisores no tiene actividades asignadas.</p>';
+  if ((filtroSup || state.filtroInforme) && otsFiltradas.length === 0) {
+    wrap.innerHTML = `<p style="padding:16px; color:var(--ink-muted); font-size:12.5px;">${state.filtroInforme ? 'Este informe no tiene actividades asignadas.' : 'Ese par de supervisores no tiene actividades asignadas.'}</p>`;
     return;
   }
   areas.forEach((area) => {
@@ -728,44 +739,367 @@ function listenInformes() {
   informesCollection().onSnapshot((snap) => {
     state.informes = [];
     snap.forEach((doc) => state.informes.push({ id: doc.id, ...doc.data() }));
-    renderInformesListaInicio();
+    if (document.getElementById('view-informes')) renderVistaInformes();
+    if (state.informeActivo) {
+      const actualizado = state.informes.find((i) => i.id === state.informeActivo.id);
+      if (actualizado) state.informeActivo = actualizado;
+    }
   }, (err) => console.error('informes error:', err));
 }
 
-function renderInformesListaInicio() {
-  const wrap = document.getElementById('inicioInformesList');
-  if (!wrap) return;
+// ============================================================
+// Vista "Informes": lista de informes + detalle de cada uno (portada de
+// datos + actividades filtradas a solo las de ese informe). Reemplaza el
+// viejo listado suelto en la portada — ahora es su propia página.
+// ============================================================
+
+function ensureVistaInformes() {
+  if (document.getElementById('view-informes')) return;
+  const main = document.querySelector('main');
+  if (!main) return;
+  const div = document.createElement('div');
+  div.className = 'view';
+  div.id = 'view-informes';
+  div.innerHTML = `
+    <div class="informes-header">
+      <button type="button" class="btn-volver-informes" id="btnVolverDeInformes">← Portada</button>
+      <h2>Informes</h2>
+      <button type="button" class="btn-mini btn-mini-primary" id="btnCrearInformeVista">+ Crear informe</button>
+    </div>
+    <div id="listaInformesCompleta"></div>
+  `;
+  main.appendChild(div);
+  document.getElementById('btnVolverDeInformes').addEventListener('click', () => { irAVista('inicio'); });
+  document.getElementById('btnCrearInformeVista').addEventListener('click', abrirModalInforme);
+}
+
+function renderVistaInformes() {
+  ensureVistaInformes();
+  const wrap = document.getElementById('listaInformesCompleta');
+  if (!state.informes.length) {
+    wrap.innerHTML = '<p class="empty-note">Todavía no hay informes creados — toca "+ Crear informe" para armar el primero.</p>';
+    return;
+  }
   wrap.innerHTML = state.informes.map((inf) => `
-    <div class="informe-card">
+    <div class="informe-card-grande" data-abririnforme="${inf.id}">
       <div class="informe-card-nombre">📝 ${escBit(inf.nombre)}</div>
-      <div class="informe-card-acciones">
-        ${inf.url ? `<a href="${inf.url}" target="_blank" rel="noopener" class="btn-mini">Abrir Word</a>` : ''}
-        <button type="button" class="btn-mini btn-mini-primary" data-rellenarword="${inf.id}">⬇ Rellenar Word</button>
-        <button type="button" class="btn-mini" data-generarinforme="${inf.id}">⬇ PDF (borrador)</button>
-      </div>
+      <div class="informe-card-meta">${(inf.otNums || []).length} actividad(es)</div>
+      <span class="informe-card-flecha">›</span>
     </div>`).join('');
-  wrap.querySelectorAll('[data-rellenarword]').forEach((btn) => {
+  wrap.querySelectorAll('[data-abririnforme]').forEach((card) => {
+    card.addEventListener('click', () => abrirInformeDetalle(card.dataset.abririnforme));
+  });
+}
+
+// ---- Detalle de un informe: la "portada de datos" (foto, objetivo, tabla de
+// administradores/supervisores, distribución de población, herramientas,
+// anexos, recomendaciones por actividad) + acceso a sus actividades filtradas
+// + generar/abrir el Word y el PDF de ese informe. ----
+
+function ensureVistaInformeDetalle() {
+  if (document.getElementById('view-informe-detalle')) return;
+  const main = document.querySelector('main');
+  if (!main) return;
+  const div = document.createElement('div');
+  div.className = 'view';
+  div.id = 'view-informe-detalle';
+  div.innerHTML = `
+    <div class="informes-header">
+      <button type="button" class="btn-volver-informes" id="btnVolverDeDetalleInforme">← Informes</button>
+      <h2 id="detalleInformeNombre">—</h2>
+    </div>
+
+    <button type="button" class="btn-entrar" id="btnVerActividadesInforme" style="width:100%; margin-bottom:16px;">📋 Ver actividades de este informe</button>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Foto de portada</label>
+      <div id="detallePortadaPreviewWrap"></div>
+      <label class="foto-slot-btn" style="display:inline-block; margin-top:6px;">📷 Elegir/cambiar foto<input type="file" accept="image/*" id="inputPortadaFoto" style="display:none;"></label>
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Objetivo principal</label>
+      <textarea id="inputObjetivoPrincipal" rows="4" placeholder="Ej: Ejecutar el cambio de ductos y válvulas del área Fallback, cumpliendo con los tiempos y estándares de seguridad establecidos..."></textarea>
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Administradores y supervisores</label>
+      <label>Administrador de Contratos Centinela</label>
+      <input type="text" id="inputAdminCentinela" placeholder="Nombre">
+      <label>Administrador de Contratos SEMIVA Chile SPA</label>
+      <input type="text" id="inputAdminSemiva" placeholder="Nombre">
+      <label>Supervisor Mecánico Centinela</label>
+      <input type="text" id="inputSupMecCentinela" placeholder="Nombre">
+      <label>Supervisor Mecánico SEMIVA</label>
+      <input type="text" id="inputSupMecSemiva" placeholder="Nombre">
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Distribución de población</label>
+      <div id="detalleDistribPreviewWrap"></div>
+      <label class="foto-slot-btn" style="display:inline-block; margin-top:6px;">📎 Elegir/cambiar archivo<input type="file" accept="image/*,.pdf" id="inputDistribPoblacion" style="display:none;"></label>
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Actividades de etapa de preparativos</label>
+      <p style="font-size:11.5px; color:var(--ink-dim); margin:0 0 8px;">Descripción y fotos de lo hecho en preparativos (antes de la parada).</p>
+      <textarea id="inputPreparativosTexto" rows="3" placeholder="Una idea por línea, como en actividades de parada"></textarea>
+      <div id="preparativosFotosWrap"></div>
+      <button id="btnAddPreparativosFoto" type="button" class="btn-add-foto">+ Agregar foto</button>
+      <button id="btnGuardarPreparativos" type="button" class="btn-guardar-comentario">Guardar preparativos</button>
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Herramientas (texto o pegado de Excel)</label>
+      <textarea id="inputHerramientas" rows="4" placeholder="Una herramienta por línea — ej: Llave torquímetro 1&quot; — 2 und."></textarea>
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Anexos (PDF o imágenes — cada hoja en su propia página)</label>
+      <div id="anexosListWrap"></div>
+      <label class="foto-slot-btn" style="display:inline-block; margin-top:6px;">📎 + Agregar anexo<input type="file" accept="image/*,.pdf" id="inputAnexo" style="display:none;"></label>
+    </div>
+
+    <div class="informe-form-bloque">
+      <label class="rotulo-mini">Recomendaciones por actividad (opcional)</label>
+      <div id="recomendacionesListWrap"></div>
+    </div>
+
+    <div class="informe-card-acciones" style="margin-top:6px; margin-bottom:24px;">
+      <a href="#" target="_blank" rel="noopener" class="btn-mini" id="linkAbrirWordInforme" style="display:none;">Abrir Word</a>
+      <button type="button" class="btn-mini btn-mini-primary" id="btnRellenarWordInforme">⬇ Rellenar Word</button>
+      <button type="button" class="btn-mini" id="btnGenerarPdfInforme">⬇ PDF (borrador)</button>
+    </div>
+  `;
+  main.appendChild(div);
+
+  document.getElementById('btnVolverDeDetalleInforme').addEventListener('click', () => { irAVista('informes'); renderVistaInformes(); });
+  document.getElementById('btnVerActividadesInforme').addEventListener('click', () => {
+    if (!state.informeActivo) return;
+    state.filtroInforme = (state.informeActivo.otNums || []).map(String);
+    irAVista('avance');
+  });
+
+  document.getElementById('inputPortadaFoto').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'portadaFotoUrl', renderDetallePortadaPreview));
+  document.getElementById('inputDistribPoblacion').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'distribucionPoblacionUrl', renderDetalleDistribPreview));
+  document.getElementById('inputAnexo').addEventListener('change', (e) => subirAnexoInforme(e.target.files[0]));
+
+  ['inputObjetivoPrincipal', 'inputAdminCentinela', 'inputAdminSemiva', 'inputSupMecCentinela', 'inputSupMecSemiva', 'inputHerramientas'].forEach((id) => {
+    const campoMap = {
+      inputObjetivoPrincipal: 'objetivoPrincipal', inputAdminCentinela: 'adminCentinela', inputAdminSemiva: 'adminSemiva',
+      inputSupMecCentinela: 'supMecCentinela', inputSupMecSemiva: 'supMecSemiva', inputHerramientas: 'herramientasTexto',
+    };
+    document.getElementById(id).addEventListener('blur', (e) => guardarCampoInformeActivo(campoMap[id], e.target.value));
+  });
+
+  document.getElementById('btnAddPreparativosFoto').addEventListener('click', () => {
+    preparativosFotoRows.push({ file: null, previewUrl: null, descripcion: '' });
+    renderPreparativosFotoRows();
+  });
+  document.getElementById('btnGuardarPreparativos').addEventListener('click', guardarPreparativosInforme);
+
+  document.getElementById('btnRellenarWordInforme').addEventListener('click', async () => {
+    const btn = document.getElementById('btnRellenarWordInforme');
+    const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Generando…';
+    try { await generateInformeWordReal(state.informeActivo); }
+    catch (e) { console.error(e); showToast(e.message || 'No se pudo generar el Word'); }
+    btn.disabled = false; btn.textContent = txt;
+  });
+  document.getElementById('btnGenerarPdfInforme').addEventListener('click', async () => {
+    const btn = document.getElementById('btnGenerarPdfInforme');
+    const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Generando…';
+    try { await generateInformePdf(state.informeActivo); }
+    catch (e) { console.error(e); showToast('No se pudo generar el PDF'); }
+    btn.disabled = false; btn.textContent = txt;
+  });
+}
+
+function renderDetallePortadaPreview() {
+  const wrap = document.getElementById('detallePortadaPreviewWrap');
+  if (!wrap || !state.informeActivo) return;
+  const url = state.informeActivo.portadaFotoUrl;
+  wrap.innerHTML = url ? `<img src="${url}" style="max-width:220px; border-radius:8px; display:block;">` : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin foto todavía.</p>';
+}
+
+function renderDetalleDistribPreview() {
+  const wrap = document.getElementById('detalleDistribPreviewWrap');
+  if (!wrap || !state.informeActivo) return;
+  const url = state.informeActivo.distribucionPoblacionUrl;
+  wrap.innerHTML = url ? `<a href="${url}" target="_blank" rel="noopener" class="btn-mini">Ver archivo cargado</a>` : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin archivo todavía.</p>';
+}
+
+function renderAnexosLista() {
+  const wrap = document.getElementById('anexosListWrap');
+  if (!wrap || !state.informeActivo) return;
+  const anexos = state.informeActivo.anexos || [];
+  wrap.innerHTML = anexos.length ? anexos.map((a, i) => `
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line);">
+      <a href="${a.url}" target="_blank" rel="noopener" style="flex:1; font-size:12.5px; color:var(--brand); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escBit(a.nombre)}</a>
+      <button type="button" class="btn-x-emergente-mini" data-quitaranexo="${i}">✕</button>
+    </div>`).join('') : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin anexos todavía.</p>';
+  wrap.querySelectorAll('[data-quitaranexo]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const inf = state.informes.find((i) => i.id === btn.dataset.rellenarword);
-      if (!inf) return;
-      const txt = btn.textContent;
-      btn.disabled = true; btn.textContent = 'Generando…';
-      try { await generateInformeWordReal(inf); }
-      catch (e) { console.error(e); showToast(e.message || 'No se pudo generar el Word'); }
-      btn.disabled = false; btn.textContent = txt;
+      const anexos = (state.informeActivo.anexos || []).slice();
+      anexos.splice(parseInt(btn.dataset.quitaranexo, 10), 1);
+      await informesCollection().doc(state.informeActivo.id).update({ anexos });
+      state.informeActivo.anexos = anexos;
+      renderAnexosLista();
     });
   });
-  wrap.querySelectorAll('[data-generarinforme]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const inf = state.informes.find((i) => i.id === btn.dataset.generarinforme);
-      if (!inf) return;
-      const txt = btn.textContent;
-      btn.disabled = true; btn.textContent = 'Generando…';
-      try { await generateInformePdf(inf); }
-      catch (e) { console.error(e); showToast('No se pudo generar el PDF'); }
-      btn.disabled = false; btn.textContent = txt;
+}
+
+function renderRecomendacionesLista() {
+  const wrap = document.getElementById('recomendacionesListWrap');
+  if (!wrap || !state.informeActivo) return;
+  const ots = (state.informeActivo.otNums || []).map((n) => allOts().find((o) => String(o.otNum) === String(n))).filter(Boolean);
+  const recs = state.informeActivo.recomendaciones || {};
+  wrap.innerHTML = ots.map((ot) => `
+    <div style="margin-bottom:10px;">
+      <label style="font-size:11.5px; color:var(--ink-muted); display:block; margin-bottom:4px;">${ot.manual ? escBit(ot.descripcion) : `OT ${ot.otNum} — ${escBit(ot.descripcion)}`}</label>
+      <textarea rows="2" data-recomendacion="${ot.otNum}" placeholder="(opcional)">${escBit(recs[ot.otNum] || '')}</textarea>
+    </div>`).join('') || '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Este informe no tiene actividades todavía.</p>';
+  wrap.querySelectorAll('[data-recomendacion]').forEach((ta) => {
+    ta.addEventListener('blur', async () => {
+      const recs = { ...(state.informeActivo.recomendaciones || {}) };
+      recs[ta.dataset.recomendacion] = ta.value;
+      await informesCollection().doc(state.informeActivo.id).update({ recomendaciones: recs });
+      state.informeActivo.recomendaciones = recs;
     });
   });
+}
+
+async function guardarCampoInformeActivo(campo, valor) {
+  if (!state.informeActivo) return;
+  try {
+    await informesCollection().doc(state.informeActivo.id).update({ [campo]: valor });
+    state.informeActivo[campo] = valor;
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo guardar — revisa tu conexión');
+  }
+}
+
+async function subirArchivoInforme(file, campo, callbackRender) {
+  if (!file || !state.informeActivo) return;
+  try {
+    const storage = firebase.storage();
+    const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/${campo}_${Date.now()}_${file.name}`;
+    const ref = storage.ref(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    await guardarCampoInformeActivo(campo, url);
+    if (callbackRender) callbackRender();
+    showToast('Archivo guardado ✓');
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo subir el archivo — revisa tu conexión');
+  }
+}
+
+async function subirAnexoInforme(file) {
+  if (!file || !state.informeActivo) return;
+  try {
+    const storage = firebase.storage();
+    const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/anexos/${Date.now()}_${file.name}`;
+    const ref = storage.ref(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    const anexos = (state.informeActivo.anexos || []).concat([{ nombre: file.name, url, tipo: file.type }]);
+    await informesCollection().doc(state.informeActivo.id).update({ anexos });
+    state.informeActivo.anexos = anexos;
+    renderAnexosLista();
+    showToast('Anexo agregado ✓');
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo subir el anexo — revisa tu conexión');
+  }
+}
+
+let preparativosFotoRows = [];
+function renderPreparativosFotoRows() {
+  const wrap = document.getElementById('preparativosFotosWrap');
+  if (!wrap) return;
+  wrap.innerHTML = preparativosFotoRows.map((row, i) => `
+    <div class="comentario-foto-row">
+      <div class="comentario-foto-actions">
+        <label class="foto-slot-btn">📷 Tomar foto<input type="file" accept="image/*" capture="environment" class="preparativos-foto-input" data-i="${i}" style="display:none;"></label>
+        <label class="foto-slot-btn foto-slot-btn-alt">🖼 Galería<input type="file" accept="image/*" class="preparativos-foto-input" data-i="${i}" style="display:none;"></label>
+        <button type="button" class="comentario-foto-remove" data-i="${i}">✕</button>
+      </div>
+      ${row.previewUrl ? `<img class="comentario-foto-preview" src="${row.previewUrl}">` : ''}
+      <input type="text" class="comentario-foto-desc" data-i="${i}" placeholder="Descripción de la foto" value="${escBit(row.descripcion).replace(/"/g, '&quot;')}">
+    </div>`).join('');
+  wrap.querySelectorAll('.preparativos-foto-input').forEach((inp) => {
+    inp.addEventListener('change', (e) => {
+      const i = Number(inp.dataset.i);
+      const file = e.target.files[0];
+      if (!file) return;
+      preparativosFotoRows[i].file = file;
+      const reader = new FileReader();
+      reader.onload = () => { preparativosFotoRows[i].previewUrl = reader.result; renderPreparativosFotoRows(); };
+      reader.readAsDataURL(file);
+    });
+  });
+  wrap.querySelectorAll('.comentario-foto-desc').forEach((inp) => {
+    inp.addEventListener('input', () => { preparativosFotoRows[Number(inp.dataset.i)].descripcion = inp.value; });
+  });
+  wrap.querySelectorAll('.comentario-foto-remove').forEach((btn) => {
+    btn.addEventListener('click', () => { preparativosFotoRows.splice(Number(btn.dataset.i), 1); renderPreparativosFotoRows(); });
+  });
+}
+
+async function guardarPreparativosInforme() {
+  if (!state.informeActivo) return;
+  const btn = document.getElementById('btnGuardarPreparativos');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const storage = firebase.storage();
+    const fotos = [];
+    for (const row of preparativosFotoRows.filter((r) => r.file)) {
+      const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/preparativos/${Date.now()}_${row.file.name}`;
+      const ref = storage.ref(path);
+      await ref.put(row.file);
+      const url = await ref.getDownloadURL();
+      fotos.push({ url, descripcion: row.descripcion || '' });
+    }
+    const bullets = (document.getElementById('inputPreparativosTexto').value || '').split('\n').map((s) => s.trim()).filter(Boolean);
+    await informesCollection().doc(state.informeActivo.id).update({ preparativosTexto: bullets, preparativosFotos: fotos });
+    state.informeActivo.preparativosTexto = bullets;
+    state.informeActivo.preparativosFotos = fotos;
+    showToast('Preparativos guardados ✓');
+  } catch (e) {
+    console.error(e);
+    showToast('No se pudo guardar — revisa tu conexión');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar preparativos';
+}
+
+function abrirInformeDetalle(id) {
+  const inf = state.informes.find((i) => i.id === id);
+  if (!inf) return;
+  state.informeActivo = inf;
+  ensureVistaInformeDetalle();
+
+  document.getElementById('detalleInformeNombre').textContent = inf.nombre;
+  document.getElementById('inputObjetivoPrincipal').value = inf.objetivoPrincipal || '';
+  document.getElementById('inputAdminCentinela').value = inf.adminCentinela || '';
+  document.getElementById('inputAdminSemiva').value = inf.adminSemiva || '';
+  document.getElementById('inputSupMecCentinela').value = inf.supMecCentinela || '';
+  document.getElementById('inputSupMecSemiva').value = inf.supMecSemiva || '';
+  document.getElementById('inputHerramientas').value = inf.herramientasTexto || '';
+  document.getElementById('inputPreparativosTexto').value = (inf.preparativosTexto || []).join('\n');
+  preparativosFotoRows = (inf.preparativosFotos || []).map((f) => ({ file: null, previewUrl: f.url, descripcion: f.descripcion }));
+  renderPreparativosFotoRows();
+
+  const linkWord = document.getElementById('linkAbrirWordInforme');
+  if (inf.url) { linkWord.href = inf.url; linkWord.style.display = ''; } else { linkWord.style.display = 'none'; }
+
+  renderDetallePortadaPreview();
+  renderDetalleDistribPreview();
+  renderAnexosLista();
+  renderRecomendacionesLista();
+
+  irAVista('informe-detalle');
 }
 
 function abrirModalInforme() {
@@ -1846,9 +2180,7 @@ function renderGanttOverview() {
   document.getElementById('ganttTitle').textContent = 'Línea de tiempo — Work Pack';
   document.getElementById('ganttBack').style.display = 'none';
 
-  const otsFiltradasGantt = state.filtroSupervisor
-    ? allOts().filter((o) => otCoincideConParSupervisor(o, state.filtroSupervisor))
-    : allOts();
+  const otsFiltradasGantt = otsVisibles();
   const areas = [...new Set(otsFiltradasGantt.map((o) => o.area))];
   let rows = areas.map((area) => {
     const rowsHtml = otsFiltradasGantt.filter((o) => o.area === area).map((ot) => {
@@ -3686,11 +4018,10 @@ function ensureInicioView() {
       <p class="hero-fechas" id="inicioFechas"></p>
       <p class="hero-desc" id="inicioDesc"></p>
       <button class="btn-entrar" id="btnEntrarLista">Lista de actividades</button>
-      <div id="inicioInformesList" class="informes-lista"></div>
+      <button class="btn-entrar btn-entrar-secundario" id="btnVerInformes" type="button">📁 Informes</button>
       <div class="hero-secundarios">
         <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📁 Certificados aparejos</a>
         <button id="btnAddPetsInicio" type="button" class="btn-entrar btn-entrar-secundario">📄 + PETS</button>
-        <button id="btnAddInformeInicio" type="button" class="btn-entrar btn-entrar-secundario">📝 + Informe</button>
       </div>
       <div class="hero-stats" id="inicioStats"></div>
     </div>`;
@@ -3699,7 +4030,10 @@ function ensureInicioView() {
     irAVista('avance');
   });
   document.getElementById('btnAddPetsInicio').addEventListener('click', abrirModalPets);
-  document.getElementById('btnAddInformeInicio').addEventListener('click', abrirModalInforme);
+  document.getElementById('btnVerInformes').addEventListener('click', () => {
+    irAVista('informes');
+    renderVistaInformes();
+  });
 
   const linkDrive = document.getElementById('linkDriveCertificados');
   if (typeof DRIVE_CERTIFICADOS_URL !== 'undefined' && DRIVE_CERTIFICADOS_URL) {
@@ -3751,6 +4085,12 @@ function irAVista(nombre) {
     polinesSheetOtNum = null;
     state.otSeleccionada = null;
   }
+  // Salir del todo del contexto de un informe (portada o lista de informes) —
+  // dentro del informe (detalle/actividades/curva) el filtro se mantiene.
+  if (nombre === 'inicio' || nombre === 'informes') {
+    state.filtroInforme = null;
+    state.informeActivo = null;
+  }
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const view = document.getElementById('view-' + nombre);
   if (view) view.classList.add('active');
@@ -3762,10 +4102,36 @@ function irAVista(nombre) {
   document.body.classList.toggle('en-inicio', nombre === 'inicio');
 
   if (nombre === 'curva') renderChart();
-  if (nombre === 'avance') renderGanttChart();
+  if (nombre === 'avance') { renderGanttChart(); renderList(); }
+
+  actualizarBannerFiltroInforme(nombre);
 
   const mainEl = document.querySelector('main');
   if (mainEl) mainEl.scrollTop = 0;
+}
+
+// Aviso fijo de "estás viendo solo las actividades de este informe", con
+// salida rápida — para que no sea confuso por qué la lista/línea de tiempo
+// de golpe muestra menos actividades que el total.
+function actualizarBannerFiltroInforme(nombreVista) {
+  let banner = document.getElementById('bannerFiltroInforme');
+  const debeMostrarse = state.filtroInforme && (nombreVista === 'avance' || nombreVista === 'curva');
+  if (!debeMostrarse) {
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'bannerFiltroInforme';
+    banner.className = 'banner-filtro-informe';
+    document.querySelector('main').prepend(banner);
+  }
+  banner.style.display = 'flex';
+  banner.innerHTML = `<span>📝 Viendo solo: ${escBit(state.informeActivo ? state.informeActivo.nombre : 'este informe')}</span><button type="button" id="btnSalirFiltroInforme">Salir</button>`;
+  document.getElementById('btnSalirFiltroInforme').addEventListener('click', () => {
+    if (state.informeActivo) { abrirInformeDetalle(state.informeActivo.id); }
+    else { state.filtroInforme = null; irAVista('inicio'); }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
