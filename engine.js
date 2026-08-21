@@ -1172,6 +1172,38 @@ async function guardarInformeAdmin() {
 // ============================================================
 
 const INFORME_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PARADA';
+const PREPARATIVOS_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PREPARATIVOS';
+const PORTADA_FOTO_ANCLA = 'DEL SERVICIO DE:';
+const OBJETIVO_PRINCIPAL_ANCLA = 'OBJETIVO PRINCIPAL';
+
+// Si el usuario escribió su propio objetivo, se usa tal cual. Si no, se arma
+// uno en el mismo estilo que trae la plantilla de ejemplo, pero con las
+// actividades reales de ESTE informe en vez de las del ejemplo.
+function generarObjetivoPrincipalTexto(informe) {
+  if (informe.objetivoPrincipal && informe.objetivoPrincipal.trim()) return informe.objetivoPrincipal.trim();
+  const ots = (informe.otNums || []).map((n) => allOts().find((o) => String(o.otNum) === String(n))).filter(Boolean);
+  const nombres = ots.map((o) => tituloSinEquipo(o.descripcion)).join(', ') || 'las actividades de este informe';
+  return `Registrar y sustentar el cumplimiento del servicio de mantenimiento en ${nombres}, detallando actividades, desviaciones/interferencias y evidencias de control, con el fin de respaldar la conformidad del trabajo ejecutado según planificación y estándares de minera Centinela.`;
+}
+
+function buildParrafoObjetivoWord(texto) {
+  return `<w:p><w:pPr><w:ind w:left="708" w:right="142"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic"/></w:rPr><w:t xml:space="preserve">${escXmlWord(texto)}</w:t></w:r></w:p>`;
+}
+
+// Última posición de `texto` dentro de xml, buscando solo entre [desde, hasta)
+// — para ubicar "el último par de fotos de ESTA sección" sin agarrar por error
+// contenido de otra sección más adelante en el documento (como preparativos
+// vs. parada, que usan el mismo patrón de tabla dos veces).
+function ultimoIndiceEnRango(xml, texto, desde, hasta) {
+  let idx = -1, cursor = desde;
+  for (;;) {
+    const encontrado = xml.indexOf(texto, cursor);
+    if (encontrado === -1 || (hasta !== undefined && hasta !== -1 && encontrado >= hasta)) break;
+    idx = encontrado;
+    cursor = encontrado + texto.length;
+  }
+  return idx;
+}
 const INFORME_TC_BORDERS = '<w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>';
 
 function escXmlWord(str) {
@@ -1232,13 +1264,15 @@ const INFORME_FOTO_MAX_ALTO_CM = 7;
 // sabe el formato que se está incrustando, sin importar si el original era
 // HEIC/PNG/lo que sea. Devuelve null (en vez de lanzar) si la foto no se pudo
 // procesar, para que una foto rota no tumbe el informe completo.
-async function prepararFotoParaWord(url) {
+async function prepararFotoParaWord(url, cxDestino, cyDestino) {
   try {
     const r = await fetch(url);
     const blob = await r.blob();
     const bitmap = await createImageBitmap(blob);
 
-    const targetRatio = INFORME_FOTO_MAX_ANCHO_CM / INFORME_FOTO_MAX_ALTO_CM;
+    const cx = cxDestino || Math.round(INFORME_FOTO_MAX_ANCHO_CM * INFORME_EMU_POR_CM);
+    const cy = cyDestino || Math.round(INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM);
+    const targetRatio = cx / cy;
     let sx = 0, sy = 0, sw = bitmap.width, sh = bitmap.height;
     const srcRatio = sw / sh;
     if (srcRatio > targetRatio) {
@@ -1261,10 +1295,8 @@ async function prepararFotoParaWord(url) {
     const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
     const bytes = new Uint8Array(await outBlob.arrayBuffer());
 
-    // Siempre exactamente 9x7cm — la foto ya viene recortada a esa proporción,
-    // así que no hace falta (ni conviene) recalcular en base a su tamaño real.
-    const cx = Math.round(INFORME_FOTO_MAX_ANCHO_CM * INFORME_EMU_POR_CM);
-    const cy = Math.round(INFORME_FOTO_MAX_ALTO_CM * INFORME_EMU_POR_CM);
+    // La foto ya viene recortada exactamente a la proporción de cx/cy, así que
+    // no hace falta (ni conviene) recalcular el tamaño final en base a ella.
     return { bytes, cx, cy };
   } catch (e) {
     console.error('No se pudo preparar una foto para el Word:', e);
@@ -1360,6 +1392,43 @@ function buildBloqueRegistroFotosWord(fotosEmbebidas) {
   return out;
 }
 
+// La sección "REGISTRO FOTOGRÁFICO EN PERIODO DE PREPARATIVOS" NO usa la
+// misma estructura que la de parada (tabla grande con una fila por par) —
+// mapeado de la plantilla real: ahí cada tabla chica de par va SUELTA,
+// directo en el cuerpo del documento, separada de la siguiente por 3
+// párrafos (uno en blanco, uno con salto de página, otro en blanco), sin
+// ninguna tabla ni fila que las envuelva. Por eso necesita su propio
+// separador y su propio armador de bloque — reutiliza igual buildTablaParWord.
+function buildSeparadorRegistroFotosPreparativosWord() {
+  const p1 = randParaIdWord(), p2 = randParaIdWord(), p3 = randParaIdWord();
+  const rPr = '<w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic"/></w:rPr>';
+  return `<w:p w14:paraId="${p1}" w14:textId="${p1}"><w:pPr>${rPr}</w:pPr></w:p>`
+    + `<w:p w14:paraId="${p2}" w14:textId="${p2}"><w:pPr>${rPr}</w:pPr><w:r>${rPr}<w:br w:type="page"/></w:r></w:p>`
+    + `<w:p w14:paraId="${p3}" w14:textId="${p3}"><w:pPr>${rPr}</w:pPr></w:p>`;
+}
+
+function buildBloqueRegistroFotosPreparativosWord(fotosEmbebidas) {
+  let out = '';
+  let contador = 0;
+  let i = 0;
+  while (i < fotosEmbebidas.length) {
+    const a = fotosEmbebidas[i];
+    const siguiente = fotosEmbebidas[i + 1];
+    const b = (siguiente && siguiente.fechaTexto === a.fechaTexto) ? siguiente : null;
+
+    out += buildSeparadorRegistroFotosPreparativosWord();
+    out += buildTablaParWord(
+      a.fechaTexto, contador + 1, b ? contador + 2 : null,
+      a.drawingXml, b ? b.drawingXml : null,
+      a.descripcion, b ? b.descripcion : null
+    );
+
+    contador += b ? 2 : 1;
+    i += b ? 2 : 1;
+  }
+  return out;
+}
+
 async function generateInformeWordReal(informe) {
   if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
   const resp = await fetch('./assets/plantilla-informe.docx');
@@ -1369,6 +1438,129 @@ async function generateInformeWordReal(informe) {
   const docFile = zip.file('word/document.xml');
   if (!docFile) throw new Error('La plantilla no tiene word/document.xml — ¿es un .docx válido?');
   let xml = docFile.asText();
+
+  // Relaciones de imágenes: se usan/comparten entre TODAS las secciones que
+  // incrustan fotos (portada, preparativos, parada, Curva S) — una sola
+  // numeración de rId y un solo bloque a agregar al final.
+  const relsPath = 'word/_rels/document.xml.rels';
+  let relsXml = zip.file(relsPath).asText();
+  const rIdsUsados = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
+  let nextRid = (rIdsUsados.length ? Math.max(...rIdsUsados) : 0) + 1;
+  let nuevasRelsXml = '';
+  let contadorImagen = 0;
+
+  // ---- Foto de portada: opcional. Si el informe tiene una foto propia
+  // cargada, reemplaza la foto de ejemplo de la plantilla — se mantiene el
+  // mismo tamaño (cx/cy) que trae la plantilla para que encaje igual en el
+  // diseño de la portada. Si no hay foto propia o no se encuentra la sección,
+  // se sigue sin esto (nunca debe tumbar el resto del informe). ----
+  if (informe.portadaFotoUrl) {
+    try {
+      const portadaAnclaIdx = xml.indexOf(PORTADA_FOTO_ANCLA);
+      if (portadaAnclaIdx !== -1) {
+        const drawingStartIdx = xml.indexOf('<w:drawing', portadaAnclaIdx);
+        if (drawingStartIdx !== -1 && drawingStartIdx - portadaAnclaIdx < 3000) {
+          const drawingEndIdx = xml.indexOf('</w:drawing>', drawingStartIdx) + '</w:drawing>'.length;
+          const extentMatch = xml.slice(drawingStartIdx, drawingStartIdx + 400).match(/<wp:extent cx="(\d+)" cy="(\d+)"/);
+          const cxPortada = extentMatch ? parseInt(extentMatch[1], 10) : Math.round(14.52 * INFORME_EMU_POR_CM);
+          const cyPortada = extentMatch ? parseInt(extentMatch[2], 10) : Math.round(12 * INFORME_EMU_POR_CM);
+          const preparada = await prepararFotoParaWord(informe.portadaFotoUrl, cxPortada, cyPortada);
+          if (preparada) {
+            contadorImagen++;
+            const nombreArchivo = `portada_${Date.now()}.jpeg`;
+            const rId = `rId${nextRid++}`;
+            zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+            nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+            const drawingPortadaXml = buildDrawingXmlWord(rId, cxPortada, cyPortada, 800000 + contadorImagen);
+            xml = xml.slice(0, drawingStartIdx) + drawingPortadaXml + xml.slice(drawingEndIdx);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('No se pudo reemplazar la foto de portada en el Word:', e);
+    }
+  }
+
+  // ---- Objetivo principal: reemplaza el párrafo de ejemplo (resaltado en
+  // amarillo en la plantilla) por el texto propio del informe, o uno
+  // generado automáticamente con sus actividades si no se escribió ninguno. ----
+  try {
+    const objAnclaIdx = xml.indexOf(OBJETIVO_PRINCIPAL_ANCLA);
+    if (objAnclaIdx !== -1) {
+      const headingParaEndIdx = xml.indexOf('</w:p>', objAnclaIdx);
+      if (headingParaEndIdx !== -1) {
+        const contentParaStartIdx = xml.indexOf('<w:p', headingParaEndIdx + '</w:p>'.length);
+        if (contentParaStartIdx !== -1 && contentParaStartIdx - headingParaEndIdx < 500) {
+          const contentParaEndIdx = xml.indexOf('</w:p>', contentParaStartIdx) + '</w:p>'.length;
+          const nuevoParrafo = buildParrafoObjetivoWord(generarObjetivoPrincipalTexto(informe));
+          xml = xml.slice(0, contentParaStartIdx) + nuevoParrafo + xml.slice(contentParaEndIdx);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('No se pudo reemplazar el objetivo principal en el Word:', e);
+  }
+
+  // ---- Actividades de preparativos: mismo formato que la tabla de
+  // "ACTIVIDADES REALIZADAS EN PERIODO DE PARADA", pero con las viñetas y
+  // fotos sueltas que se cargaron para preparativos (no vienen por turno/OT
+  // como la bitácora, así que se arma como un solo bloque). ----
+  try {
+    const prepTextoRaw = (informe.preparativosTexto || []).filter((b) => b && b.trim());
+    const prepFotos = informe.preparativosFotos || [];
+    if (prepTextoRaw.length || prepFotos.length) {
+      const prepAnclaIdx = xml.indexOf(PREPARATIVOS_TABLA_ANCLA);
+      if (prepAnclaIdx === -1) throw new Error('No se encontró la sección de actividades de preparativos en la plantilla.');
+      const prepTblEndIdx = xml.indexOf('</w:tbl>', prepAnclaIdx);
+      if (prepTblEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de actividades de preparativos.');
+
+      let prepRowsXml = '';
+      if (prepTextoRaw.length) {
+        prepRowsXml += buildFilaFechaWord(fechaDDMMYYYY(new Date().toISOString().slice(0, 10)));
+        prepRowsXml += buildFilaTurnoWord('PREPARATIVOS', [{ titulo: 'Actividades de preparativos', bullets: prepTextoRaw }], false);
+        xml = xml.slice(0, prepTblEndIdx) + prepRowsXml + xml.slice(prepTblEndIdx);
+      }
+      const prepBusquedaFotosDesde = prepTblEndIdx + prepRowsXml.length;
+
+      if (prepFotos.length) {
+        // Límite superior: no puede pasarse a la sección de fotos de PARADA,
+        // que usa el mismo título de sección más adelante en el documento.
+        const limiteSuperior = xml.indexOf(INFORME_TABLA_ANCLA);
+        const prepFotosAnclaIdx = xml.indexOf(REGISTRO_FOTOS_ANCLA, prepBusquedaFotosDesde);
+        if (prepFotosAnclaIdx !== -1 && (limiteSuperior === -1 || prepFotosAnclaIdx < limiteSuperior)) {
+          const fechaHoy = fechaDDMMYYYY(new Date().toISOString().slice(0, 10));
+          const prepFotosEmbebidas = [];
+          for (const foto of prepFotos) {
+            const preparada = await prepararFotoParaWord(foto.url);
+            if (!preparada) continue;
+            contadorImagen++;
+            const nombreArchivo = `prepFoto${Date.now()}_${contadorImagen}.jpeg`;
+            const rId = `rId${nextRid++}`;
+            zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+            nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+            prepFotosEmbebidas.push({
+              fechaTexto: fechaHoy,
+              drawingXml: buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 850000 + contadorImagen),
+              descripcion: foto.descripcion || '',
+            });
+          }
+          if (prepFotosEmbebidas.length) {
+            // A diferencia de la sección de parada, acá cada tabla chica de
+            // par va SUELTA en el cuerpo (sin fila/tabla que la envuelva) —
+            // así que basta con insertar justo después del cierre de la
+            // última tabla chica existente, sin buscar ningún </w:tr>.
+            const ultimoImagenIdx = ultimoIndiceEnRango(xml, 'IMAGEN ', prepFotosAnclaIdx, limiteSuperior);
+            if (ultimoImagenIdx === -1) throw new Error('No se encontró ningún par de fotos existente en la sección de preparativos para usar como referencia de formato.');
+            const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx) + '</w:tbl>'.length;
+            if (limiteSuperior !== -1 && ultimaTablaParEndIdx > limiteSuperior) throw new Error('El punto de inserción de fotos de preparativos quedó fuera de su sección — se aborta para no dañar el documento.');
+            xml = xml.slice(0, ultimaTablaParEndIdx) + buildBloqueRegistroFotosPreparativosWord(prepFotosEmbebidas) + xml.slice(ultimaTablaParEndIdx);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('No se pudieron incrustar las actividades de preparativos en el Word:', e);
+  }
 
   const anclaIdx = xml.indexOf(INFORME_TABLA_ANCLA);
   if (anclaIdx === -1) throw new Error('No se encontró la sección "ACTIVIDADES REALIZADAS EN PERIODO DE PARADA" en la plantilla — puede que la hayan editado.');
@@ -1422,12 +1614,6 @@ async function generateInformeWordReal(informe) {
 
   // ---- 2) Fotos: se incrustan en la tabla "REGISTRO FOTOGRÁFICO" (2 columnas,
   // celdas de 9x7cm), NO mezcladas con los comentarios de arriba. ----
-  const relsPath = 'word/_rels/document.xml.rels';
-  let relsXml = zip.file(relsPath).asText();
-  const rIdsUsados = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
-  let nextRid = (rIdsUsados.length ? Math.max(...rIdsUsados) : 0) + 1;
-  let nuevasRelsXml = '';
-  let contadorImagen = 0;
   const fotosEmbebidas = [];
 
   for (const { entry } of entradas) {
