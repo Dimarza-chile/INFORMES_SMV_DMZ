@@ -1422,17 +1422,29 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 1600);
 }
 
+// "11 Ago 20:00 (Noche)" -> {hora:"20:00", diaMes:"11/Ago"} — dos líneas
+// horizontales cortas en vez de una sola rotada, más parecido a Excel y más
+// legible en celular (nada de texto de costado).
+function partirEtiquetaTurno(lbl) {
+  const m = String(lbl).match(/^(\d+)\s+(\S+)\s+(\d{2}:\d{2})/);
+  if (!m) return { hora: '', diaMes: lbl };
+  return { hora: m[3], diaMes: `${m[1]}/${m[2]}` };
+}
+
 function renderChart() {
   const curveData = computeCurve();
-  state.lastCurveData = curveData; // guardado para el export a PDF
+  state.lastCurveData = curveData; // guardado para el export a imagen
   const { labels, percentPlan, percentReal, alcanceEmerg, percentRealTotal, kpis } = curveData;
   const svgWrap = document.getElementById('chartSvgWrap');
-  const W = 640, H = 340, padL = 34, padR = 10, padT = 14, padB = 60;
+  const W = 640, H = 340, padL = 34, padR = 10, padT = 14, padB = 46;
   const n = labels.length;
   const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
   const yMax = 1.25;
   const y = (v) => padT + (1 - v / yMax) * (H - padT - padB);
   const vis = state.curveVisible || (state.curveVisible = { plan: true, real: true, alcance: true, total: true });
+
+  const tituloEl = document.getElementById('chartTitulo');
+  if (tituloEl) tituloEl.textContent = `Curva S - ${SEED_DATA.paradaNombre} (Planificado vs Real + Emergentes)`;
 
   function pathFor(arr) {
     let d = ''; let started = false;
@@ -1455,8 +1467,8 @@ function renderChart() {
     <text x="${padL-6}" y="${y(v)+3}" font-size="9" fill="#595959" text-anchor="end" font-family="Calibri,Arial,sans-serif">${Math.round(v*100)}%</text>
   `).join('');
   const xAxisLabels = labels.map((lbl, i) => {
-    const parts = lbl.split('  ');
-    return `<text x="${x(i).toFixed(1)}" y="${H-padB+13}" font-size="7.5" fill="#595959" text-anchor="middle" font-family="Calibri,Arial,sans-serif" transform="rotate(45 ${x(i).toFixed(1)} ${H-padB+13})">${parts.join(' ')}</text>`;
+    const { hora, diaMes } = partirEtiquetaTurno(lbl);
+    return `<text x="${x(i).toFixed(1)}" y="${H-padB+15}" font-size="8" fill="#595959" text-anchor="middle" font-family="Calibri,Arial,sans-serif">${hora}<tspan x="${x(i).toFixed(1)}" dy="10">${diaMes}</tspan></text>`;
   }).join('');
   const xAxisTicks = labels.map((lbl, i) =>
     `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${H-padB}" y2="${H-padB+4}" stroke="#BFBFBF" stroke-width="1"/>`
@@ -1473,6 +1485,7 @@ function renderChart() {
       ${vis.plan ? `<path d="${pathFor(percentPlan)}" fill="none" stroke="${EXCEL_PLAN}" stroke-width="2.25"/>` : ''}
       ${vis.real ? `<path d="${pathFor(percentReal)}" fill="none" stroke="${EXCEL_REAL}" stroke-width="2.25"/>` : ''}
       ${vis.total ? `<path d="${pathFor(percentRealTotal)}" fill="none" stroke="${EXCEL_TOTAL}" stroke-width="2.25"/>` : ''}
+      ${vis.alcance ? dotsFor(alcanceEmerg, EXCEL_ALCANCE) : ''}
       ${vis.plan ? dotsFor(percentPlan, EXCEL_PLAN) : ''}
       ${vis.real ? dotsFor(percentReal, EXCEL_REAL) : ''}
       ${vis.total ? dotsFor(percentRealTotal, EXCEL_TOTAL) : ''}
@@ -1504,6 +1517,127 @@ function renderChart() {
   curTxt.textContent = lastIdx !== undefined
     ? `Plan ${fmtPct(percentPlan[lastIdx])} · Real ${fmtPct(percentReal[lastIdx])} · Total ${fmtPct(percentRealTotal[lastIdx])} (${labels[lastIdx]})`
     : 'Aún no hay avance reportado';
+}
+
+// Genera UNA imagen (PNG, no PDF) con la Curva S estilo Excel + sus KPI's —
+// para compartir directo, no para imprimir. Redibuja el gráfico más ancho y
+// con la leyenda al costado (como en una hoja de cálculo real), reutilizando
+// los mismos datos ya calculados por renderChart(). Siempre muestra las 4
+// curvas completas, sin importar qué haya ocultado el usuario tocando la
+// leyenda en pantalla — la imagen exportada es la versión "oficial" completa.
+async function generateCurvaSImagen() {
+  const curveData = state.lastCurveData || computeCurve();
+  const { labels, percentPlan, percentReal, alcanceEmerg, percentRealTotal, kpis } = curveData;
+
+  const W = 760, H = 420, padL = 48, padR = 20, padT = 20, padB = 52;
+  const n = labels.length;
+  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
+  const yMax = 1.25;
+  const y = (v) => padT + (1 - v / yMax) * (H - padT - padB);
+  const EXCEL_PLAN = '#1F3E8C', EXCEL_REAL = '#D93B3B', EXCEL_ALCANCE = '#8FA7C4', EXCEL_TOTAL = '#E8862C';
+
+  function pathFor(arr) {
+    let d = ''; let started = false;
+    arr.forEach((v, i) => {
+      if (v === null || v === undefined) { started = false; return; }
+      d += (started ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1) + ' ';
+      started = true;
+    });
+    return d.trim();
+  }
+  function dotsFor(arr, color) {
+    return arr.map((v, i) => v === null || v === undefined ? '' :
+      `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5" fill="${color}"/>`).join('');
+  }
+  const gridY = [0, 0.25, 0.5, 0.75, 1, 1.25].map((v) => `
+    <line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="#D9D9D9" stroke-width="1"/>
+    <text x="${padL-8}" y="${y(v)+4}" font-size="11" fill="#595959" text-anchor="end" font-family="Calibri,Arial,sans-serif">${Math.round(v*100)}%</text>
+  `).join('');
+  const xAxisLabels = labels.map((lbl, i) => {
+    const { hora, diaMes } = partirEtiquetaTurno(lbl);
+    return `<text x="${x(i).toFixed(1)}" y="${H-padB+20}" font-size="10.5" fill="#595959" text-anchor="middle" font-family="Calibri,Arial,sans-serif">${hora}<tspan x="${x(i).toFixed(1)}" dy="14">${diaMes}</tspan></text>`;
+  }).join('');
+  const xAxisTicks = labels.map((lbl, i) =>
+    `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${H-padB}" y2="${H-padB+4}" stroke="#BFBFBF" stroke-width="1"/>`
+  ).join('');
+  const yMid = (padT + H - padB) / 2;
+
+  const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="0" width="${W}" height="${H}" fill="#FFFFFF"/>
+    ${gridY}
+    <line x1="${padL}" x2="${W-padR}" y1="${H-padB}" y2="${H-padB}" stroke="#BFBFBF" stroke-width="1"/>
+    ${xAxisTicks}
+    ${xAxisLabels}
+    <text x="${(padL+W-padR)/2}" y="${H-8}" font-size="12.5" font-weight="700" fill="#3A3A3A" text-anchor="middle" font-family="Calibri,Arial,sans-serif">Turno</text>
+    <text x="15" y="${yMid}" font-size="12.5" font-weight="700" fill="#3A3A3A" text-anchor="middle" font-family="Calibri,Arial,sans-serif" transform="rotate(-90 15 ${yMid})">% Avance</text>
+    <path d="${pathFor(alcanceEmerg)}" fill="none" stroke="${EXCEL_ALCANCE}" stroke-width="2" stroke-dasharray="6,4"/>
+    <path d="${pathFor(percentPlan)}" fill="none" stroke="${EXCEL_PLAN}" stroke-width="2.5"/>
+    <path d="${pathFor(percentReal)}" fill="none" stroke="${EXCEL_REAL}" stroke-width="2.5"/>
+    <path d="${pathFor(percentRealTotal)}" fill="none" stroke="${EXCEL_TOTAL}" stroke-width="2.5"/>
+    ${dotsFor(alcanceEmerg, EXCEL_ALCANCE)}
+    ${dotsFor(percentPlan, EXCEL_PLAN)}
+    ${dotsFor(percentReal, EXCEL_REAL)}
+    ${dotsFor(percentRealTotal, EXCEL_TOTAL)}
+  </svg>`;
+
+  const leyenda = [
+    [EXCEL_PLAN, '% Avance Planificado'],
+    [EXCEL_REAL, '% Avance Real'],
+    [EXCEL_ALCANCE, 'Alcance Emergentes'],
+    [EXCEL_TOTAL, 'Real Total (+ Emergentes)'],
+  ].map(([color, label]) => `
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+      <span style="width:11px; height:11px; border-radius:50%; background:${color}; flex:none;"></span>
+      <span style="font-size:12.5px; color:#3A3A3A;">${escBit(label)}</span>
+    </div>`).join('');
+
+  const nTotalOts = kpis.nTotalVigentes + kpis.nCanceladas;
+  const pctCanceladoConteo = nTotalOts ? kpis.nCanceladas / nTotalOts : 0;
+  const kpiCards = [
+    ['Crecim. Alcance', `${(kpis.pctCrecimiento * 100).toFixed(1)}%`],
+    ['Var. Neta', `${kpis.netoPct >= 0 ? '+' : ''}${(kpis.netoPct * 100).toFixed(1)}%`],
+    ['Cancelado', `${kpis.nCanceladas} / ${nTotalOts} (${(pctCanceladoConteo * 100).toFixed(0)}%)`],
+  ].map(([label, value]) => `
+    <div style="flex:1; background:#F4F4F2; border:1px solid #E2E2DD; border-radius:10px; padding:12px 14px;">
+      <div style="font-size:10px; color:#8A8A90; text-transform:uppercase; letter-spacing:.04em;">${escBit(label)}</div>
+      <div style="font-size:19px; font-weight:800; color:#1A1A2E; margin-top:3px;">${escBit(value)}</div>
+    </div>`).join('');
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed; left:-10000px; top:0; width:840px; background:#ffffff; font-family:Arial,Helvetica,sans-serif; color:#1A1A2E; padding:30px 34px;';
+  wrap.innerHTML = `
+    <h2 style="text-align:center; font-size:19px; font-weight:800; margin:0 0 20px; line-height:1.35;">Curva S - ${escBit(SEED_DATA.paradaNombre)} (Planificado vs Real + Emergentes)</h2>
+    <div style="display:flex; align-items:flex-start; gap:22px;">
+      <div style="flex:1; min-width:0;">${svg}</div>
+      <div style="width:190px; flex:none; padding-top:20px;">${leyenda}</div>
+    </div>
+    <div style="display:flex; gap:12px; margin-top:22px;">${kpiCards}</div>
+  `;
+  document.body.appendChild(wrap);
+
+  try {
+    const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff' });
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('No se pudo generar la imagen');
+    const nombreArchivo = `curva-s-${new Date().toISOString().slice(0, 10)}.png`;
+    const file = new File([blob], nombreArchivo, { type: 'image/png' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Curva S' });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombreArchivo;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } finally {
+    wrap.remove();
+  }
 }
 
 function renderAll() { renderList(); renderChart(); renderGanttChart(); }
@@ -3727,24 +3861,22 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 'emergente-simple');
 
   safeInit(() => {
-    const btn = document.getElementById('btnDownloadPdf');
+    const btn = document.getElementById('btnDownloadImagen');
     if (btn) {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         btn.classList.add('loading');
         btn.textContent = 'Generando…';
-        setTimeout(async () => {
-          try {
-            await generatePdf();
-          } catch (e) {
-            console.error(e);
-            showToast('No se pudo generar el PDF');
-          }
-          btn.classList.remove('loading');
-          btn.textContent = '⬇ PDF';
-        }, 50);
+        try {
+          await generateCurvaSImagen();
+        } catch (e) {
+          console.error(e);
+          showToast('No se pudo generar la imagen');
+        }
+        btn.classList.remove('loading');
+        btn.textContent = '⬇ Imagen';
       });
     }
-  }, 'pdf-curva-s');
+  }, 'imagen-curva-s');
 
   safeInit(() => {
     const btnReporte = document.getElementById('btnReporteComponentes');

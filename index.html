@@ -534,15 +534,15 @@
 
       <div class="chart-card">
         <div class="chart-card-top">
-          <h3>Curva S</h3>
-          <button id="btnDownloadPdf" class="btn-pdf">⬇ PDF</button>
+          <h3 id="chartTitulo">Curva S</h3>
+          <button id="btnDownloadImagen" class="btn-pdf">⬇ Imagen</button>
         </div>
         <p class="legend-hint">Toca cada línea para mostrar u ocultar</p>
         <div class="legend">
-          <span data-curve="plan"><i style="background:#1F3E8C"></i>Avance Planificado</span>
-          <span data-curve="real"><i style="background:#D93B3B"></i>Avance Real</span>
+          <span data-curve="plan"><i style="background:#1F3E8C"></i>% Avance Planificado</span>
+          <span data-curve="real"><i style="background:#D93B3B"></i>% Avance Real</span>
           <span data-curve="alcance"><i style="background:#8FA7C4"></i>Alcance Emergentes</span>
-          <span data-curve="total"><i style="background:#E8862C"></i>Real Total</span>
+          <span data-curve="total"><i style="background:#E8862C"></i>Real Total (+ Emergentes)</span>
         </div>
         <div id="chartSvgWrap"></div>
         <p style="font-family:var(--mono); font-size:11px; color:var(--ink-muted); margin:10px 8px 4px;" id="kpiActual"></p>
