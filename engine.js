@@ -735,10 +735,25 @@ function listenInformes() {
 function renderInformesListaInicio() {
   const wrap = document.getElementById('inicioInformesList');
   if (!wrap) return;
-  wrap.innerHTML = state.informes.map((inf) => inf.url
-    ? `<a href="${inf.url}" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📝 ${escBit(inf.nombre)}</a>`
-    : `<span class="btn-entrar btn-entrar-secundario" style="opacity:.6; cursor:default;" title="Sin archivo adjunto todavía">📝 ${escBit(inf.nombre)} (sin archivo)</span>`
-  ).join('');
+  wrap.innerHTML = state.informes.map((inf) => `
+    <div class="informe-card">
+      <div class="informe-card-nombre">📝 ${escBit(inf.nombre)}</div>
+      <div class="informe-card-acciones">
+        ${inf.url ? `<a href="${inf.url}" target="_blank" rel="noopener" class="btn-mini">Abrir Word</a>` : ''}
+        <button type="button" class="btn-mini btn-mini-primary" data-generarinforme="${inf.id}">⬇ Generar PDF</button>
+      </div>
+    </div>`).join('');
+  wrap.querySelectorAll('[data-generarinforme]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const inf = state.informes.find((i) => i.id === btn.dataset.generarinforme);
+      if (!inf) return;
+      const txt = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Generando…';
+      try { await generateInformePdf(inf); }
+      catch (e) { console.error(e); showToast('No se pudo generar el PDF'); }
+      btn.disabled = false; btn.textContent = txt;
+    });
+  });
 }
 
 function abrirModalInforme() {
@@ -790,6 +805,132 @@ async function guardarInformeAdmin() {
     showToast('No se pudo guardar el informe — revisa tu conexión');
   }
   btn.disabled = false; btn.textContent = 'Guardar informe';
+}
+
+// Arma el informe completo en PDF a partir de lo que ya se cargó en la app (bitácora
+// de cada OT del grupo: comentarios turno a turno + fotos con su descripción) — nada
+// que tipear aparte. Fotos en pares (2 por fila), máximo 9cm de ancho x 7cm de alto,
+// respetando su proporción real. Se regenera cada vez que se toca el botón, así que
+// cualquier ajuste que hagas en la app (editar un comentario, agregar una foto) queda
+// reflejado con solo volver a generar.
+async function generateInformePdf(informe) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = 210, pageH = 297, marginX = 16;
+  const C_DARK = [26, 26, 46], C_MUTED = [107, 107, 117], C_LINE = [220, 220, 216];
+  const C_BRAND = (window.BRANDING && window.BRANDING.colorRGB) || [31, 160, 165];
+  let cy = 20, pageNum = 1;
+
+  function drawFooter() {
+    doc.setFontSize(7.5); doc.setTextColor(150, 150, 150);
+    doc.text('Generado automáticamente — ' + ((window.BRANDING && window.BRANDING.empresa) || 'DIMARZA'), marginX, pageH - 8);
+    doc.text('Página ' + pageNum, pageW - marginX, pageH - 8, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+  }
+  function newPage() { doc.addPage(); pageNum++; drawFooter(); cy = 18; }
+  function ensureSpace(h) { if (cy + h > pageH - 16) newPage(); }
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(...C_DARK);
+  doc.text(informe.nombre || 'Informe', marginX, cy);
+  cy += 8;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...C_MUTED);
+  doc.text(`${SEED_DATA.paradaNombre} · Generado: ${new Date().toLocaleString('es-CL')}`, marginX, cy);
+  doc.setTextColor(0, 0, 0);
+  cy += 10;
+
+  const ots = (informe.otNums || [])
+    .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
+    .filter(Boolean);
+
+  for (const ot of ots) {
+    ensureSpace(14);
+    doc.setFillColor(...C_BRAND);
+    doc.rect(marginX, cy, pageW - marginX * 2, 7, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+    doc.text(ot.manual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`, marginX + 3, cy + 5);
+    doc.setTextColor(0, 0, 0);
+    cy += 11;
+
+    const entries = state.bitacora
+      .filter((b) => String(b.otNum) === String(ot.otNum))
+      .sort((a, b) => (a.turnoIdx ?? 0) - (b.turnoIdx ?? 0) || (a.createdAt || 0) - (b.createdAt || 0));
+
+    if (!entries.length) {
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(...C_MUTED);
+      doc.text('Sin comentarios registrados para esta actividad.', marginX + 2, cy + 4);
+      doc.setTextColor(0, 0, 0);
+      cy += 10;
+      continue;
+    }
+
+    for (const entry of entries) {
+      ensureSpace(12);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...C_BRAND);
+      doc.text(`${entry.fecha ? fmtFechaCorta(entry.fecha) : ''} · Turno ${entry.turnoTipo || ''}`, marginX + 2, cy + 4);
+      doc.setTextColor(0, 0, 0);
+      cy += 6;
+
+      if (entry.bullets && entry.bullets.length) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+        entry.bullets.forEach((b) => {
+          const lines = doc.splitTextToSize('• ' + b, pageW - marginX * 2 - 4);
+          ensureSpace(lines.length * 4.2 + 2);
+          doc.text(lines, marginX + 4, cy + 3.5);
+          cy += lines.length * 4.2 + 1;
+        });
+        cy += 2;
+      }
+
+      if (entry.fotos && entry.fotos.length) {
+        const maxWmm = 90, maxHmm = 70, gap = 6;
+        const colW = (pageW - marginX * 2 - gap) / 2;
+        let colX = marginX, rowMaxH = 0, colIdx = 0;
+        for (const foto of entry.fotos) {
+          let dataUrl, props;
+          try {
+            dataUrl = await urlToDataURL(foto.url);
+            props = doc.getImageProperties(dataUrl);
+          } catch (e) { continue; } // si una foto no carga, se sigue con el resto sin romper el informe
+
+          let w = Math.min(colW, maxWmm), h = w * (props.height / props.width);
+          if (h > maxHmm) { h = maxHmm; w = h * (props.width / props.height); }
+
+          if (colIdx === 2) { colIdx = 0; colX = marginX; cy += rowMaxH + 5; rowMaxH = 0; }
+          ensureSpace(h + 10);
+
+          doc.addImage(dataUrl, props.fileType || 'JPEG', colX, cy, w, h);
+          if (foto.descripcion) {
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...C_MUTED);
+            doc.text(doc.splitTextToSize(foto.descripcion, w), colX, cy + h + 3.5);
+            doc.setTextColor(0, 0, 0);
+          }
+          rowMaxH = Math.max(rowMaxH, h + 8);
+          colX += colW + gap;
+          colIdx++;
+        }
+        cy += rowMaxH + 4;
+      }
+      cy += 3;
+    }
+    cy += 4;
+  }
+
+  // Firmas — en blanco: se firman a mano o digital una vez revisado el informe.
+  ensureSpace(30);
+  cy += 8;
+  doc.setDrawColor(...C_LINE);
+  const firmas = ['ELABORADO', 'REVISADO', 'VALIDADO', 'ENCARGADO'];
+  const gapFirma = 6, colWFirma = (pageW - marginX * 2 - gapFirma * (firmas.length - 1)) / firmas.length;
+  firmas.forEach((f, i) => {
+    const x = marginX + i * (colWFirma + gapFirma);
+    doc.line(x, cy + 14, x + colWFirma, cy + 14);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...C_MUTED);
+    doc.text(f, x, cy + 18);
+    doc.setTextColor(0, 0, 0);
+  });
+
+  drawFooter();
+  doc.save(`${(informe.nombre || 'informe').replace(/[/\\?%*:|"<>]/g, '-')}.pdf`);
 }
 
 function renderPetsBlock(otNum) {
@@ -2969,7 +3110,7 @@ function ensureInicioView() {
       <p class="hero-fechas" id="inicioFechas"></p>
       <p class="hero-desc" id="inicioDesc"></p>
       <button class="btn-entrar" id="btnEntrarLista">Lista de actividades</button>
-      <div id="inicioInformesList" class="hero-secundarios"></div>
+      <div id="inicioInformesList" class="informes-lista"></div>
       <div class="hero-secundarios">
         <a id="linkDriveCertificados" href="#" target="_blank" rel="noopener" class="btn-entrar btn-entrar-secundario">📁 Certificados aparejos</a>
         <button id="btnAddPetsInicio" type="button" class="btn-entrar btn-entrar-secundario">📄 + PETS</button>
