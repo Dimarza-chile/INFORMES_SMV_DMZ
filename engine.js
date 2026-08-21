@@ -1748,24 +1748,28 @@ async function generateInformeWordReal(informe) {
     .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
     .filter(Boolean);
 
-  // ---- "CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES": tabla TAG/OT/DESCRIPCIÓN/
-  // % EJECUCIÓN + torta, bajo su propio encabezado (antes del párrafo de
-  // introducción que ya trae la plantilla). ----
+  // ---- "CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES": encabezado (ya trae la
+  // plantilla) → párrafo de introducción (ya trae la plantilla) → tabla
+  // TAG/OT/DESCRIPCIÓN/% EJECUCIÓN + torta (esto sí se arma nuevo) → recién
+  // ahí sigue la tabla de ÁREA/Administradores, que es lo próximo que ya
+  // trae la plantilla. Se inserta justo antes de que esa tabla empiece. ----
   try {
     const cumplAnclaIdx = xml.indexOf(CUMPLIMIENTO_ANCLA);
     const cumplAncla2Idx = xml.indexOf(CUMPLIMIENTO_ANCLA, cumplAnclaIdx + 1);
     const cumplHeadingIdx = cumplAncla2Idx !== -1 ? cumplAncla2Idx : cumplAnclaIdx;
-    if (cumplHeadingIdx !== -1 && ots.length) {
-      const puntoInsercion = xml.indexOf('</w:p>', cumplHeadingIdx) + '</w:p>'.length;
-
+    const puntoInsercion = cumplHeadingIdx !== -1 ? xml.indexOf('<w:tbl>', cumplHeadingIdx) : -1;
+    if (puntoInsercion !== -1 && ots.length) {
       const tIdxFinal = SEED_DATA.turnoLabels.length - 1;
+      // Solo 3 estados posibles en esta tabla: 100% (completada), 0% (no
+      // ejecutada) o EMERGENTE — nunca un % intermedio, aunque la actividad
+      // tenga avance parcial cargado.
       const filas = ots.map((ot) => {
         if (ot.tipo === 'Emergente') {
           return { tag: '-', ot: '-', desc: tituloSinEquipo(ot.descripcion), pct: 'EMERGENTE', categoria: 'emergentes' };
         }
         const cancelada = getOtEstado(ot.otNum).startsWith('Cancelada');
-        const pct = cancelada ? 0 : Math.round(otProgressAt(ot, tIdxFinal) * 100);
-        return { tag: '-', ot: String(ot.otNum), desc: tituloSinEquipo(ot.descripcion), pct: `${pct}%`, categoria: pct >= 100 ? 'ejecutadas' : 'no_ejecutadas' };
+        const completada = !cancelada && otProgressAt(ot, tIdxFinal) >= 1;
+        return { tag: '-', ot: String(ot.otNum), desc: tituloSinEquipo(ot.descripcion), pct: completada ? '100%' : '0%', categoria: completada ? 'ejecutadas' : 'no_ejecutadas' };
       });
 
       const tablaXml = buildTablaCumplimientoWord(filas);
