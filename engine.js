@@ -740,9 +740,21 @@ function renderInformesListaInicio() {
       <div class="informe-card-nombre">📝 ${escBit(inf.nombre)}</div>
       <div class="informe-card-acciones">
         ${inf.url ? `<a href="${inf.url}" target="_blank" rel="noopener" class="btn-mini">Abrir Word</a>` : ''}
-        <button type="button" class="btn-mini btn-mini-primary" data-generarinforme="${inf.id}">⬇ Generar PDF</button>
+        <button type="button" class="btn-mini btn-mini-primary" data-rellenarword="${inf.id}">⬇ Rellenar Word</button>
+        <button type="button" class="btn-mini" data-generarinforme="${inf.id}">⬇ PDF (borrador)</button>
       </div>
     </div>`).join('');
+  wrap.querySelectorAll('[data-rellenarword]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const inf = state.informes.find((i) => i.id === btn.dataset.rellenarword);
+      if (!inf) return;
+      const txt = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Generando…';
+      try { await generateInformeWordReal(inf); }
+      catch (e) { console.error(e); showToast(e.message || 'No se pudo generar el Word'); }
+      btn.disabled = false; btn.textContent = txt;
+    });
+  });
   wrap.querySelectorAll('[data-generarinforme]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const inf = state.informes.find((i) => i.id === btn.dataset.generarinforme);
@@ -813,6 +825,131 @@ async function guardarInformeAdmin() {
 // respetando su proporción real. Se regenera cada vez que se toca el botón, así que
 // cualquier ajuste que hagas en la app (editar un comentario, agregar una foto) queda
 // reflejado con solo volver a generar.
+// ============================================================
+// Relleno automático del Word REAL (no una recreación) — se descarga la
+// plantilla tal cual vive en ./assets/plantilla-informe.docx, se abre como
+// zip (es lo que un .docx es), se ubica la tabla real "ACTIVIDADES
+// REALIZADAS EN PERIODO DE PARADA" dentro de word/document.xml, y se le
+// agregan filas nuevas (FECHA / TURNO DÍA-NOCHE / actividad en negrita /
+// viñetas) CLONANDO exactamente el estilo (fuente, tamaño, bordes, sombreado,
+// lista con viñetas numId=5) que ya usa esa misma tabla en la plantilla real.
+// No se toca ni una letra de lo que ya existe en el documento — solo se
+// insertan filas nuevas justo antes de que la tabla se cierre.
+// ============================================================
+
+const INFORME_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PARADA';
+const INFORME_TC_BORDERS = '<w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>';
+
+function escXmlWord(str) {
+  return String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function randParaIdWord() {
+  return Math.floor(Math.random() * 0xFFFFFFFF).toString(16).toUpperCase().padStart(8, '0');
+}
+
+function fechaDDMMYYYY(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// Fila "FECHA: dd/mm/aaaa" — clon exacto de la fila con fondo rosado de la plantilla real.
+function buildFilaFechaWord(fechaTexto) {
+  const pid = randParaIdWord();
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="283"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10206" w:type="dxa"/>${INFORME_TC_BORDERS}<w:shd w:val="clear" w:color="auto" w:fill="F2DBDB" w:themeFill="accent2" w:themeFillTint="33"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:color w:val="000000" w:themeColor="text1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:eastAsia="es-PE"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:color w:val="000000" w:themeColor="text1"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:eastAsia="es-PE"/></w:rPr><w:t xml:space="preserve">FECHA: ${escXmlWord(fechaTexto)}</w:t></w:r></w:p></w:tc></w:tr>`;
+}
+
+// Fila "TURNO DÍA/NOCHE" con, dentro, una o más actividades (título en negrita
+// sacado del nombre de la OT + sus comentarios como viñetas) — mismo clon de estilo.
+function buildFilaTurnoWord(turnoLabel, items) {
+  const pid = randParaIdWord();
+  const header = `<w:p><w:pPr><w:spacing w:before="120"/><w:ind w:right="115"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:iCs/><w:sz w:val="20"/><w:u w:val="single"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Calibri" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:iCs/><w:sz w:val="20"/><w:u w:val="single"/></w:rPr><w:t>${escXmlWord(turnoLabel)}</w:t></w:r></w:p>`;
+  const cuerpo = items.map(({ titulo, bullets }) => {
+    const tituloPara = `<w:p><w:pPr><w:spacing w:before="80"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(titulo)}</w:t></w:r></w:p>`;
+    const listaBullets = (bullets.length ? bullets : ['(sin comentarios registrados)']).map((b) =>
+      `<w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr><w:spacing w:line="276" w:lineRule="auto"/><w:ind w:left="1170" w:hanging="709"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(b)}</w:t></w:r></w:p>`
+    ).join('');
+    return tituloPara + listaBullets;
+  }).join('');
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="482"/><w:jc w:val="center"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="10206" w:type="dxa"/>${INFORME_TC_BORDERS}<w:vAlign w:val="center"/></w:tcPr>${header}${cuerpo}</w:tc></w:tr>`;
+}
+
+async function generateInformeWordReal(informe) {
+  if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
+  const resp = await fetch('./assets/plantilla-informe.docx');
+  if (!resp.ok) throw new Error('No se pudo descargar la plantilla Word.');
+  const buf = await resp.arrayBuffer();
+  const zip = new PizZip(buf);
+  const docFile = zip.file('word/document.xml');
+  if (!docFile) throw new Error('La plantilla no tiene word/document.xml — ¿es un .docx válido?');
+  let xml = docFile.asText();
+
+  const anclaIdx = xml.indexOf(INFORME_TABLA_ANCLA);
+  if (anclaIdx === -1) throw new Error('No se encontró la sección "ACTIVIDADES REALIZADAS EN PERIODO DE PARADA" en la plantilla — puede que la hayan editado.');
+  const tblEndIdx = xml.indexOf('</w:tbl>', anclaIdx);
+  if (tblEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de actividades.');
+
+  const ots = (informe.otNums || [])
+    .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
+    .filter(Boolean);
+
+  const entradas = [];
+  ots.forEach((ot) => {
+    state.bitacora.filter((b) => String(b.otNum) === String(ot.otNum)).forEach((entry) => entradas.push({ ot, entry }));
+  });
+  entradas.sort((a, b) => (a.entry.turnoIdx ?? 0) - (b.entry.turnoIdx ?? 0) || (a.entry.createdAt || 0) - (b.entry.createdAt || 0));
+
+  let rowsXml = '';
+  let lastFecha = null, lastTurnoKey = null, buffer = [];
+  const flush = () => {
+    if (!buffer.length) return;
+    rowsXml += buildFilaTurnoWord(buffer[0].turnoLabel, buffer);
+    buffer = [];
+  };
+  entradas.forEach(({ ot, entry }) => {
+    const fechaTexto = fechaDDMMYYYY(entry.fecha);
+    const turnoKey = fechaTexto + '|' + (entry.turnoTipo || '');
+    if (turnoKey !== lastTurnoKey) {
+      flush();
+      if (fechaTexto && fechaTexto !== lastFecha) { rowsXml += buildFilaFechaWord(fechaTexto); lastFecha = fechaTexto; }
+      lastTurnoKey = turnoKey;
+    }
+    buffer.push({
+      turnoLabel: entry.turnoTipo === 'Día' ? 'TURNO DÍA' : 'TURNO NOCHE',
+      titulo: ot.manual ? ot.descripcion : `OT ${ot.otNum} — ${ot.descripcion}`,
+      bullets: entry.bullets || [],
+    });
+  });
+  flush();
+
+  if (!rowsXml) throw new Error('Esta actividad todavía no tiene comentarios cargados — agrega al menos uno antes de generar el Word.');
+
+  xml = xml.slice(0, tblEndIdx) + rowsXml + xml.slice(tblEndIdx);
+
+  // Verificación antes de entregar el archivo: si el XML quedó mal formado
+  // (una etiqueta sin cerrar, algo así), mejor fallar acá con un error claro
+  // que entregar un .docx que Word no pueda abrir.
+  const parseCheck = new DOMParser().parseFromString(xml, 'application/xml');
+  if (parseCheck.getElementsByTagName('parsererror').length) {
+    throw new Error('El XML generado quedó mal formado — no se generó el archivo para no entregar un Word roto.');
+  }
+
+  zip.file('word/document.xml', xml);
+  const blob = zip.generate({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
+  const nombreArchivo = `${(informe.nombre || 'informe').replace(/[/\\?%*:|"<>]/g, '-')}.docx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombreArchivo;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 async function generateInformePdf(informe) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
