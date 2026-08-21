@@ -1500,6 +1500,34 @@ function reemplazarValorCeldaWord(xml, labelIdx, texto) {
   return xml.slice(0, valueTcStart) + nuevaCelda + xml.slice(valueTcEnd);
 }
 
+// ---- Itinerario del servicio: una fila por turno (FECHA | TURNO A/B | HR.
+// INGRESO | HR. SALIDA | HRS PROGRAMADAS | HRS EFECTIVAS) — se arma entero
+// solo, no depende de nada que el usuario cargue: sale directo de
+// SEED_DATA.turnos (siempre bloques de 12h desde las 08:00 o las 20:00). ----
+const ITINERARIO_ANCLA = 'ITINERARIO';
+
+function formatoHoraTurnoWord(iso) {
+  const hora = new Date(iso).getHours();
+  return hora === 8 ? '08:00 AM' : '08:00 PM';
+}
+
+function buildFilaItinerarioWord(fechaTexto, turnoTipo, horaIngreso, horaSalida) {
+  const pid = randParaIdWord();
+  const celdaBase = (ancho, texto, bold, azul) => {
+    const colorRPr = azul ? '<w:color w:val="4F81BD" w:themeColor="accent1"/>' : '';
+    const boldRPr = bold ? '<w:b/>' : '<w:bCs/>';
+    return `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders><w:shd w:val="clear" w:color="auto" w:fill="FFFFFF" w:themeFill="background1"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:eastAsia="Cambria" w:hAnsi="Century Gothic" w:cs="Times New Roman"/>${boldRPr}${colorRPr}<w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/>${boldRPr}${colorRPr}<w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(texto)}</w:t></w:r></w:p></w:tc>`;
+  };
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:trHeight w:val="349"/><w:jc w:val="center"/></w:trPr>`
+    + celdaBase(1843, fechaTexto, false, false)
+    + celdaBase(992, turnoTipo, true, false)
+    + celdaBase(1560, horaIngreso, true, true)
+    + celdaBase(1701, horaSalida, true, true)
+    + celdaBase(1842, '12 Hrs', true, true)
+    + celdaBase(1607, '12 Hrs', true, true)
+    + `</w:tr>`;
+}
+
 async function generateInformeWordReal(informe) {
   if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
   const resp = await fetch('./assets/plantilla-informe.docx');
@@ -1589,6 +1617,28 @@ async function generateInformeWordReal(informe) {
     }
   } catch (e) {
     console.error('No se pudieron reemplazar los administradores de contrato en el Word:', e);
+  }
+
+  // ---- Itinerario del servicio: una fila por turno de toda la parada. ----
+  try {
+    const itinAnclaIdx = xml.lastIndexOf(ITINERARIO_ANCLA);
+    if (itinAnclaIdx !== -1) {
+      const itinTblStart = xml.indexOf('<w:tbl>', itinAnclaIdx);
+      const itinTblEnd = xml.indexOf('</w:tbl>', itinTblStart);
+      if (itinTblStart !== -1 && itinTblEnd !== -1) {
+        let filasItin = '';
+        SEED_DATA.turnos.forEach((iso, i) => {
+          const fechaTexto = fechaDDMMYYYY(iso.slice(0, 10));
+          const turnoTipo = turnoTipoDe(i);
+          const horaIngreso = formatoHoraTurnoWord(iso);
+          const horaSalida = turnoTipo === 'A' ? '08:00 PM' : '08:00 AM';
+          filasItin += buildFilaItinerarioWord(fechaTexto, turnoTipo, horaIngreso, horaSalida);
+        });
+        xml = xml.slice(0, itinTblEnd) + filasItin + xml.slice(itinTblEnd);
+      }
+    }
+  } catch (e) {
+    console.error('No se pudo agregar el itinerario del servicio en el Word:', e);
   }
 
   // ---- Actividades de preparativos: mismo formato que la tabla de
