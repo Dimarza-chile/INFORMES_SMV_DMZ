@@ -1545,6 +1545,89 @@ function calcularSupervisorInforme(ots, tipoTurno) {
   return mejor;
 }
 
+// ---- "CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES": tabla TAG/OT/DESCRIPCIÓN/
+// % EJECUCIÓN + gráfico de torta debajo, tal como se arma en los informes
+// reales — no viene en esta plantilla, así que se inserta entera bajo su
+// propio encabezado (que sí existe, con el mismo texto). ----
+const CUMPLIMIENTO_ANCLA = 'CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES';
+const CUMPLIMIENTO_COL_TAG = 1500, CUMPLIMIENTO_COL_OT = 1500, CUMPLIMIENTO_COL_DESC = 5700, CUMPLIMIENTO_COL_PCT = 1506;
+
+function buildCeldaCumplimientoWord(ancho, texto, esHeader) {
+  const shd = esHeader ? '<w:shd w:val="clear" w:color="auto" w:fill="92D050"/>' : '';
+  const bold = esHeader ? '<w:b/>' : '';
+  return `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>${shd}<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="Sinespaciado"/><w:jc w:val="center"/><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/>${bold}<w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Century Gothic" w:hAnsi="Century Gothic" w:cs="Times New Roman"/>${bold}<w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escXmlWord(texto)}</w:t></w:r></w:p></w:tc>`;
+}
+
+function buildFilaCumplimientoWord(tag, ot, desc, pct, esHeader) {
+  const pid = randParaIdWord();
+  return `<w:tr w14:paraId="${pid}" w14:textId="${pid}"><w:trPr><w:jc w:val="center"/></w:trPr>`
+    + buildCeldaCumplimientoWord(CUMPLIMIENTO_COL_TAG, tag, esHeader)
+    + buildCeldaCumplimientoWord(CUMPLIMIENTO_COL_OT, ot, esHeader)
+    + buildCeldaCumplimientoWord(CUMPLIMIENTO_COL_DESC, desc, esHeader)
+    + buildCeldaCumplimientoWord(CUMPLIMIENTO_COL_PCT, pct, esHeader)
+    + `</w:tr>`;
+}
+
+function buildTablaCumplimientoWord(filas) {
+  const anchoTotal = CUMPLIMIENTO_COL_TAG + CUMPLIMIENTO_COL_OT + CUMPLIMIENTO_COL_DESC + CUMPLIMIENTO_COL_PCT;
+  const header = buildFilaCumplimientoWord('TAG', 'OT', 'DESCRIPCIÓN', '% EJECUCIÓN', true);
+  const cuerpo = filas.map((f) => buildFilaCumplimientoWord(f.tag, f.ot, f.desc, f.pct, false)).join('');
+  return `<w:tbl><w:tblPr><w:tblStyle w:val="Tablaconcuadrcula"/><w:tblW w:w="${anchoTotal}" w:type="dxa"/><w:jc w:val="center"/><w:tblLayout w:type="fixed"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr><w:tblGrid><w:gridCol w:w="${CUMPLIMIENTO_COL_TAG}"/><w:gridCol w:w="${CUMPLIMIENTO_COL_OT}"/><w:gridCol w:w="${CUMPLIMIENTO_COL_DESC}"/><w:gridCol w:w="${CUMPLIMIENTO_COL_PCT}"/></w:tblGrid>${header}${cuerpo}</w:tbl>`;
+}
+
+// Párrafo vacío simple — para el espacio entre la tabla y el gráfico, y para
+// envolver la imagen del gráfico (una imagen inline necesita vivir dentro de
+// un <w:p>, no puede ir suelta a nivel de cuerpo).
+function buildParrafoVacioWord() {
+  const pid = randParaIdWord();
+  return `<w:p w14:paraId="${pid}" w14:textId="${pid}"/>`;
+}
+function buildParrafoImagenCenteredWord(drawingXml) {
+  const pid = randParaIdWord();
+  return `<w:p w14:paraId="${pid}" w14:textId="${pid}"><w:pPr><w:jc w:val="center"/></w:pPr><w:r>${drawingXml}</w:r></w:p>`;
+}
+
+// Gráfico de torta (SVG) — 3 categorías fijas: ejecutadas / no ejecutadas /
+// emergentes, con etiquetas afuera (nombre + cantidad + %) y línea guía,
+// igual al estilo del gráfico nativo de Excel que se ve en los informes
+// reales. Se rasteriza con html2canvas y se incrusta como imagen (mismo
+// patrón ya usado para la Curva S).
+function buildPieChartCumplimientoSvg(datos, W, H) {
+  const total = datos.reduce((s, d) => s + d.count, 0) || 1;
+  const cx = W / 2, cy = H / 2 + 10, r = Math.min(W, H) * 0.26;
+  const rad = (a) => (a * Math.PI) / 180;
+  let anguloAcum = -90;
+  const slices = [];
+  const labels = [];
+  datos.forEach((d) => {
+    if (!d.count) return;
+    const frac = d.count / total;
+    const anguloIni = anguloAcum;
+    const anguloFin = anguloAcum + frac * 360;
+    anguloAcum = anguloFin;
+    const x1 = cx + r * Math.cos(rad(anguloIni)), y1 = cy + r * Math.sin(rad(anguloIni));
+    const x2 = cx + r * Math.cos(rad(anguloFin)), y2 = cy + r * Math.sin(rad(anguloFin));
+    const largeArc = anguloFin - anguloIni > 180 ? 1 : 0;
+    slices.push(`<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${d.color}" stroke="#ffffff" stroke-width="1.5"/>`);
+
+    const anguloMedio = (anguloIni + anguloFin) / 2;
+    const rLabel = r * 1.42;
+    const lx = cx + rLabel * Math.cos(rad(anguloMedio)), ly = cy + rLabel * Math.sin(rad(anguloMedio));
+    const rLinea = r * 1.03;
+    const lnx = cx + rLinea * Math.cos(rad(anguloMedio)), lny = cy + rLinea * Math.sin(rad(anguloMedio));
+    const anchor = Math.cos(rad(anguloMedio)) >= 0.05 ? 'start' : (Math.cos(rad(anguloMedio)) <= -0.05 ? 'end' : 'middle');
+    const pct = Math.round(frac * 100);
+    labels.push(`<line x1="${lnx.toFixed(2)}" y1="${lny.toFixed(2)}" x2="${lx.toFixed(2)}" y2="${ly.toFixed(2)}" stroke="#9A9A9A" stroke-width="1"/>`);
+    labels.push(`<text x="${lx.toFixed(2)}" y="${(ly - 5).toFixed(2)}" text-anchor="${anchor}" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#333333">${escXmlWord(d.label)}</text>`);
+    labels.push(`<text x="${lx.toFixed(2)}" y="${(ly + 10).toFixed(2)}" text-anchor="${anchor}" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#333333">${d.count}; ${pct}%</text>`);
+  });
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <text x="${W / 2}" y="20" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#404040">CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES</text>
+    ${slices.join('')}
+    ${labels.join('')}
+  </svg>`;
+}
+
 // ---- Itinerario del servicio: una fila por turno (FECHA | TURNO A/B | HR.
 // INGRESO | HR. SALIDA | HRS PROGRAMADAS | HRS EFECTIVAS) — se arma entero
 // solo, no depende de nada que el usuario cargue: sale directo de
@@ -1661,6 +1744,69 @@ async function generateInformeWordReal(informe) {
     console.error('No se pudieron reemplazar los administradores de contrato en el Word:', e);
   }
 
+  const ots = (informe.otNums || [])
+    .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
+    .filter(Boolean);
+
+  // ---- "CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES": tabla TAG/OT/DESCRIPCIÓN/
+  // % EJECUCIÓN + torta, bajo su propio encabezado (antes del párrafo de
+  // introducción que ya trae la plantilla). ----
+  try {
+    const cumplAnclaIdx = xml.indexOf(CUMPLIMIENTO_ANCLA);
+    const cumplAncla2Idx = xml.indexOf(CUMPLIMIENTO_ANCLA, cumplAnclaIdx + 1);
+    const cumplHeadingIdx = cumplAncla2Idx !== -1 ? cumplAncla2Idx : cumplAnclaIdx;
+    if (cumplHeadingIdx !== -1 && ots.length) {
+      const puntoInsercion = xml.indexOf('</w:p>', cumplHeadingIdx) + '</w:p>'.length;
+
+      const tIdxFinal = SEED_DATA.turnoLabels.length - 1;
+      const filas = ots.map((ot) => {
+        if (ot.tipo === 'Emergente') {
+          return { tag: '-', ot: '-', desc: tituloSinEquipo(ot.descripcion), pct: 'EMERGENTE', categoria: 'emergentes' };
+        }
+        const cancelada = getOtEstado(ot.otNum).startsWith('Cancelada');
+        const pct = cancelada ? 0 : Math.round(otProgressAt(ot, tIdxFinal) * 100);
+        return { tag: '-', ot: String(ot.otNum), desc: tituloSinEquipo(ot.descripcion), pct: `${pct}%`, categoria: pct >= 100 ? 'ejecutadas' : 'no_ejecutadas' };
+      });
+
+      const tablaXml = buildTablaCumplimientoWord(filas);
+
+      const conteoPorCategoria = { ejecutadas: 0, no_ejecutadas: 0, emergentes: 0 };
+      filas.forEach((f) => { conteoPorCategoria[f.categoria]++; });
+      const datosGrafico = [
+        { label: 'OPERACIONES EJECUTADAS', count: conteoPorCategoria.ejecutadas, color: '#4472C4' },
+        { label: 'OPERACIONES NO EJECUTADAS', count: conteoPorCategoria.no_ejecutadas, color: '#ED7D31' },
+        { label: 'OPERACIONES EMERGENTES', count: conteoPorCategoria.emergentes, color: '#A5A5A5' },
+      ];
+
+      const svgTorta = buildPieChartCumplimientoSvg(datosGrafico, 560, 320);
+      const wrapTorta = document.createElement('div');
+      wrapTorta.style.cssText = 'position:fixed; left:-10000px; top:0; width:560px; height:320px; background:#ffffff;';
+      wrapTorta.innerHTML = svgTorta;
+      document.body.appendChild(wrapTorta);
+      const canvasTorta = await html2canvas(wrapTorta, { scale: 2, backgroundColor: '#ffffff' });
+      wrapTorta.remove();
+      const outBlobTorta = await new Promise((resolve) => canvasTorta.toBlob(resolve, 'image/png'));
+
+      let bloqueXml = buildParrafoVacioWord() + tablaXml + buildParrafoVacioWord();
+      if (outBlobTorta) {
+        const bytesTorta = new Uint8Array(await outBlobTorta.arrayBuffer());
+        const cxTorta = Math.round(14 * INFORME_EMU_POR_CM);
+        const cyTorta = Math.round(cxTorta * (canvasTorta.height / canvasTorta.width));
+        contadorImagen++;
+        const nombreArchivoTorta = `cumplimiento_${Date.now()}.png`;
+        const rIdTorta = `rId${nextRid++}`;
+        zip.file(`word/media/${nombreArchivoTorta}`, bytesTorta);
+        nuevasRelsXml += `<Relationship Id="${rIdTorta}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivoTorta}"/>`;
+        const drawingTortaXml = buildDrawingXmlWord(rIdTorta, cxTorta, cyTorta, 700000 + contadorImagen);
+        bloqueXml += buildParrafoImagenCenteredWord(drawingTortaXml) + buildParrafoVacioWord();
+      }
+
+      xml = xml.slice(0, puntoInsercion) + bloqueXml + xml.slice(puntoInsercion);
+    }
+  } catch (e) {
+    console.error('No se pudo agregar la tabla/gráfico de cumplimiento mecánico en el Word:', e);
+  }
+
   // ---- Itinerario del servicio: una fila por turno de toda la parada. ----
   try {
     const itinAnclaIdx = xml.lastIndexOf(ITINERARIO_ANCLA);
@@ -1743,10 +1889,6 @@ async function generateInformeWordReal(informe) {
   } catch (e) {
     console.error('No se pudieron incrustar las actividades de preparativos en el Word:', e);
   }
-
-  const ots = (informe.otNums || [])
-    .map((n) => allOts().find((o) => String(o.otNum) === String(n)))
-    .filter(Boolean);
 
   // ---- Supervisor Mecánico de Centinela — Día/Noche: no se pide manual, se
   // calcula de los supervisores ya asignados por turno a las actividades de
