@@ -680,6 +680,7 @@ input[type=range]::-webkit-slider-thumb{
   box-shadow:0 4px 18px rgba(232,89,12,.35); font-family:var(--sans);
 }
 .hero-secundarios{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; justify-content:center; }
+#btnVerInformes{ margin-top:12px; }
 
 .informes-lista{ display:flex; flex-direction:column; gap:8px; width:100%; max-width:420px; margin:14px auto 0; }
 .informe-card{

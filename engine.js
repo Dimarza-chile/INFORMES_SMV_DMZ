@@ -873,7 +873,7 @@ function ensureVistaInformeDetalle() {
   `;
   main.appendChild(div);
 
-  document.getElementById('btnVolverDeDetalleInforme').addEventListener('click', () => { irAVista('informes'); renderVistaInformes(); });
+  document.getElementById('btnVolverDeDetalleInforme').addEventListener('click', () => { renderVistaInformes(); irAVista('informes'); });
   document.getElementById('btnVerActividadesInforme').addEventListener('click', () => {
     if (!state.informeActivo) return;
     state.filtroInforme = (state.informeActivo.otNums || []).map(String);
@@ -4394,8 +4394,8 @@ function ensureInicioView() {
   });
   document.getElementById('btnAddPetsInicio').addEventListener('click', abrirModalPets);
   document.getElementById('btnVerInformes').addEventListener('click', () => {
-    irAVista('informes');
     renderVistaInformes();
+    irAVista('informes');
   });
 
   const linkDrive = document.getElementById('linkDriveCertificados');
@@ -4462,7 +4462,11 @@ function irAVista(nombre) {
     b.classList.toggle('active', b.dataset.view === nombre);
   });
 
-  document.body.classList.toggle('en-inicio', nombre === 'inicio');
+  // "en-inicio" también cubre Informes/detalle de informe: en escritorio esta
+  // clase es la que apaga el layout de 3 paneles (Avance/Curva S) — sin esto,
+  // esas páginas quedan tapadas por ese layout aunque su propio <div class="view">
+  // sí esté activo.
+  document.body.classList.toggle('en-inicio', nombre === 'inicio' || nombre === 'informes' || nombre === 'informe-detalle');
 
   if (nombre === 'curva') renderChart();
   if (nombre === 'avance') { renderGanttChart(); renderList(); }
