@@ -21,6 +21,10 @@ const ICON_MOON = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.4 1
 const ICON_LIST = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>`;
 const ICON_CHART = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>`;
 const ICON_CHEV = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg>`;
+// Único ícono de "volver" — mismo SVG en todos los botones de retroceso de
+// la app (antes había flechas de texto "←", botones de color marca, y
+// texto plano mezclados; ahora es siempre este mismo círculo con chevron).
+const ICON_BACK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>`;
 
 function subKey(otNum, nombre) { return otNum + '::' + nombre; }
 
@@ -762,7 +766,7 @@ function ensureVistaInformes() {
   div.id = 'view-informes';
   div.innerHTML = `
     <div class="informes-header">
-      <button type="button" class="btn-volver-informes" id="btnVolverDeInformes">← Portada</button>
+      <button type="button" class="btn-back" id="btnVolverDeInformes" title="Volver a Portada">${ICON_BACK}</button>
       <h2>Informes</h2>
       <button type="button" class="btn-mini btn-mini-primary" id="btnCrearInformeVista">+ Crear informe</button>
     </div>
@@ -805,7 +809,7 @@ function ensureVistaInformeDetalle() {
   div.id = 'view-informe-detalle';
   div.innerHTML = `
     <div class="informes-header">
-      <button type="button" class="btn-volver-informes" id="btnVolverDeDetalleInforme">← Informes</button>
+      <button type="button" class="btn-back" id="btnVolverDeDetalleInforme" title="Volver a Informes">${ICON_BACK}</button>
       <h2 id="detalleInformeNombre">—</h2>
     </div>
 
@@ -1104,7 +1108,6 @@ function abrirInformeDetalle(id) {
 
 function abrirModalInforme() {
   document.getElementById('informeNombre').value = '';
-  document.getElementById('informeArchivo').value = '';
   informePendingOts = [];
   const wrap = document.getElementById('informeOtsList');
   const areas = [...new Set(allOts().map((o) => o.area))];
@@ -1128,22 +1131,12 @@ function abrirModalInforme() {
 
 async function guardarInformeAdmin() {
   const nombre = document.getElementById('informeNombre').value.trim();
-  const file = document.getElementById('informeArchivo').files[0];
   if (!nombre) { showToast('Escribe el nombre del informe'); return; }
   if (!informePendingOts.length) { showToast('Elige al menos una actividad'); return; }
   const btn = document.getElementById('informeSave');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    let url = '', archivoNombre = '';
-    if (file) {
-      const storage = firebase.storage();
-      const path = `paradas/${PARADA_ID}/informes/${Date.now()}_${file.name}`;
-      const ref = storage.ref(path);
-      await ref.put(file);
-      url = await ref.getDownloadURL();
-      archivoNombre = file.name;
-    }
-    await informesCollection().add({ nombre, url, archivoNombre, otNums: informePendingOts, createdAt: Date.now() });
+    await informesCollection().add({ nombre, otNums: informePendingOts, createdAt: Date.now() });
     showToast('Informe guardado ✓');
     document.getElementById('informeBackdrop').classList.remove('open');
   } catch (e) {
@@ -2848,7 +2841,7 @@ function renderGanttDetail(otNum) {
   const nowPct = xPct(now, range);
 
   document.getElementById('ganttTitle').textContent = `OT ${ot.otNum} — ${ot.descripcion}`;
-  document.getElementById('ganttBack').style.display = 'inline-block';
+  document.getElementById('ganttBack').style.display = 'inline-flex';
 
   const comps = (SEED_DATA.complementarias || []).filter((c) => c.otRelacionada === otNum && c.tag !== 'INST')
     .map((c) => ({ inicio: c.inicio, fin: c.fin, color: TERCEROS_COLOR, label: c.nombre, tag: c.tag }));

@@ -176,16 +176,14 @@
     @keyframes panelSlideIn{ from{ opacity:0; transform:translateX(-10px); } to{ opacity:1; transform:translateX(0); } }
 
     /* Boton para volver a la vista amplia de la Linea de tiempo, solo visible cuando hay
-       algo elegido (si no, ya se esta viendo la linea de tiempo, no hace falta el boton) */
+       algo elegido (si no, ya se esta viendo la linea de tiempo, no hace falta el boton).
+       El look (circulo blanco + flecha) lo da .btn-back — acá solo se controla si se
+       muestra y dónde se ubica. */
     #btnVolverLineaTiempoDesktop{ display:none; }
     body:not(.en-inicio):has(#sheetBackdrop.tiene-seleccion) #btnVolverLineaTiempoDesktop,
     body:not(.en-inicio):has(#polinesSheetBackdrop.open) #btnVolverLineaTiempoDesktop{
-      display:inline-flex; align-items:center; gap:7px; margin:14px 20px 0; padding:10px 18px;
-      background:var(--brand); border:none; border-radius:10px; font-size:13.5px;
-      font-weight:700; color:#fff; cursor:pointer; width:fit-content; font-family:var(--sans);
-      box-shadow:0 2px 8px rgba(31,160,165,.35);
+      display:inline-flex; margin:14px 0 0 20px;
     }
-    #btnVolverLineaTiempoDesktop:hover{ background:#178C90; }
 
     body:not(.en-inicio) #sheetBackdrop:not(.tiene-seleccion){ display:none; }
 
@@ -387,19 +385,10 @@
     body:not(.mobile-detalle-activo) #sheetBackdrop:not(.open),
     body:not(.mobile-detalle-activo) #polinesSheetBackdrop:not(.open){ display:none; }
 
-    /* Flechita para volver, SIEMPRE visible (fija) mientras se ve el detalle de una
-       actividad en celular — sin texto, no se va con el scroll. Se ubica siempre justo
-       debajo del header (que nunca se va, --header-h se recalcula solo con ResizeObserver),
-       para que nunca se monte sobre el logo ni el WORK PACK. */
-    #btnVolverTimeline{
-      display:none; margin:0; text-align:left;
-      background:#fff; border:none; color:#1A1A2E;
-      width:36px; height:36px; padding:0; border-radius:50%; cursor:pointer;
-      align-items:center; justify-content:center;
-      box-shadow:0 2px 8px rgba(0,0,0,.28);
-      position:fixed; top:calc(var(--header-h, 140px) + 8px); left:10px; z-index:45;
-    }
-    #btnVolverTimeline .flecha{ color:#1A1A2E; font-weight:700; font-size:18px; line-height:1; }
+    /* Botón "volver" fijo mientras se ve el detalle de una actividad en
+       celular — no se va con el scroll. El look (círculo + flecha) lo da
+       .btn-back/.btn-back-fija; acá solo se controla cuándo se muestra. */
+    #btnVolverTimeline{ display:none; }
     #btnVolverTimeline .ot-actual{ display:none; }
     body.mobile-detalle-activo #btnVolverTimeline{ display:flex; }
 
@@ -419,13 +408,13 @@
     body.mobile-detalle-activo #sheetBackdrop .sheet,
     body.mobile-detalle-activo #polinesSheetBackdrop .sheet{ padding-top:48px; }
 
-    #btnVolverDetalleMovil{
-      display:none; margin:14px 16px; width:calc(100% - 32px); text-align:left;
-      background: var(--brand); border:none;
-      color:#fff; font-size:16px; font-weight:700; padding:14px 16px;
-      border-radius:12px; cursor:pointer; box-shadow:0 2px 8px rgba(31,160,165,.35);
-    }
-    body.viendo-curva-desde-detalle #btnVolverDetalleMovil{ display:block; }
+    /* Look estándar (.btn-back/.btn-back-fija); acá solo cuándo se muestra.
+       Mientras se ve la Curva S desde el detalle, este es el único botón de
+       volver visible — se apaga #btnVolverTimeline para que no queden los
+       dos círculos superpuestos en el mismo lugar. */
+    #btnVolverDetalleMovil{ display:none; }
+    body.viendo-curva-desde-detalle #btnVolverDetalleMovil{ display:flex; }
+    body.viendo-curva-desde-detalle #btnVolverTimeline{ display:none !important; }
     /* Mientras se ve Curva S desde el detalle, esconder Avance por completo */
     body.viendo-curva-desde-detalle #ganttCard,
     body.viendo-curva-desde-detalle #listaWrap,
@@ -464,7 +453,7 @@
     </div>
   </header>
 
-  <button id="btnVolverLineaTiempoDesktop" type="button">← Volver a Línea de tiempo</button>
+  <button id="btnVolverLineaTiempoDesktop" class="btn-back" type="button" title="Volver a Línea de tiempo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
   <main>
     <div class="view active" id="view-avance">
       <div class="view-toggle">
@@ -475,7 +464,7 @@
         <div class="gantt-sticky-header" id="ganttStickyHeader">
           <div class="gantt-header">
             <h3 id="ganttTitle">Línea de tiempo — Work Pack</h3>
-            <button id="ganttBack" style="display:none;">← Volver</button>
+            <button id="ganttBack" class="btn-back" type="button" title="Volver a la Línea de tiempo completa" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
           </div>
           <div class="gantt-legend">
             <span><i style="background:var(--atiempo)"></i>Cuadrilla (a tiempo)</span>
@@ -489,7 +478,7 @@
           <div id="ganttWrap"></div>
         </div>
       </div>
-      <button id="btnVolverTimeline" title="Volver a Línea de tiempo"><span class="flecha">←</span><span class="ot-actual" id="otActualEnBoton"></span></button>
+      <button id="btnVolverTimeline" class="btn-back btn-back-fija" type="button" title="Volver a Línea de tiempo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span class="ot-actual" id="otActualEnBoton"></span></button>
       <div id="listaWrap">
         <div class="add-emerg-row">
           <button id="btnAddEmerg" class="btn-add-emerg">+ Añadir actividad emergente</button>
@@ -499,7 +488,7 @@
     </div>
 
     <div class="view" id="view-curva">
-      <button id="btnVolverDetalleMovil">← Volver al detalle</button>
+      <button id="btnVolverDetalleMovil" class="btn-back btn-back-fija" type="button" title="Volver al detalle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
       <div class="kpi-strip">
         <div class="kpi-card">
           <div class="label">Crecim. Alcance</div>
@@ -700,13 +689,10 @@
   <div class="sheet">
     <div class="handle"></div>
     <h2>Nuevo informe</h2>
-    <p class="meta">Agrupa las actividades que forman este informe (ej. "Informe N°3") y adjunta su Word o PDF. Queda disponible como botón en la portada.</p>
+    <p class="meta">Agrupa las actividades que forman este informe (ej. "Informe N°3"). Queda disponible como botón en la portada.</p>
 
     <label style="display:block; font-size:12px; color:var(--ink-muted); margin:14px 0 6px;">Nombre del informe</label>
     <input type="text" id="informeNombre" placeholder="Ej: Informe N°3 — Cambio de Ductos y Válvulas" style="width:100%; padding:12px; border-radius:10px; background:var(--navy-soft); color:var(--ink); border:1px solid var(--line); font-family:var(--sans); font-size:14px; margin-bottom:14px;">
-
-    <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Archivo (Word o PDF, opcional)</label>
-    <input type="file" id="informeArchivo" accept=".doc,.docx,application/pdf" style="width:100%; margin-bottom:14px;">
 
     <label style="display:block; font-size:12px; color:var(--ink-muted); margin-bottom:6px;">Actividades que componen este informe</label>
     <div id="informeOtsList" style="max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:18px;"></div>
