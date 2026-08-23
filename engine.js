@@ -1525,6 +1525,19 @@ function insertarValorCeldaVaciaWord(xml, tcStartIdx, texto) {
 // El supervisor de un informe no se pide manualmente — se calcula desde los
 // supervisores YA asignados por turno a cada actividad (OT) del informe
 // (los mismos que se usan para filtrar/agrupar en el resto de la app). Si
+// Cuando se borra un tramo de XML (el ejemplo de la plantilla) puede llevarse
+// puesto un <w:bookmarkEnd> cuyo <w:bookmarkStart> vive ANTES, en contenido
+// que sí se conserva (el encabezado de la tabla) — un bookmark con inicio
+// pero sin fin es inválido en OOXML, y Word lo detecta como "contenido no
+// legible" al abrir el archivo (esto no lo agarra un chequeo de XML
+// bien-formado normal, porque un bookmarkEnd huérfano sigue siendo XML
+// válido, solo que semánticamente roto). Se recupera cualquier bookmarkEnd
+// del tramo borrado para reinsertarlo — mapeado del documento real: siempre
+// vive justo antes del cierre de la tabla, así que ahí se lo vuelve a poner.
+function extraerBookmarkEndsHuerfanos(chunkQueSeBorra) {
+  return [...chunkQueSeBorra.matchAll(/<w:bookmarkEnd w:id="\d+"\s*\/>/g)].map((m) => m[0]).join('');
+}
+
 // las OTs del informe tienen supervisores distintos para el mismo turno, se
 // usa el que se repite más.
 function calcularSupervisorInforme(ots, tipoTurno) {
@@ -1822,7 +1835,8 @@ async function generateInformeWordReal(informe) {
         });
         // El ejemplo real que trae la plantilla (turnos de OTRO informe) se
         // BORRA — solo queda el encabezado + los turnos reales de esta parada.
-        xml = xml.slice(0, itinHeaderRowEndIdx) + filasItin + xml.slice(itinTblEnd);
+        const bookmarksHuerfanosItin = extraerBookmarkEndsHuerfanos(xml.slice(itinHeaderRowEndIdx, itinTblEnd));
+        xml = xml.slice(0, itinHeaderRowEndIdx) + filasItin + bookmarksHuerfanosItin + xml.slice(itinTblEnd);
       }
     }
   } catch (e) {
@@ -1851,7 +1865,8 @@ async function generateInformeWordReal(informe) {
       prepRowsXml += buildFilaFechaWord(fechaDDMMYYYY(new Date().toISOString().slice(0, 10)));
       prepRowsXml += buildFilaTurnoWord('PREPARATIVOS', [{ titulo: 'Actividades de preparativos', bullets: prepTextoRaw }], false);
     }
-    xml = xml.slice(0, prepHeaderRowEndIdx) + prepRowsXml + xml.slice(prepTblEndIdx);
+    const bookmarksHuerfanosPrep = extraerBookmarkEndsHuerfanos(xml.slice(prepHeaderRowEndIdx, prepTblEndIdx));
+    xml = xml.slice(0, prepHeaderRowEndIdx) + prepRowsXml + bookmarksHuerfanosPrep + xml.slice(prepTblEndIdx);
     const prepBusquedaFotosDesde = prepHeaderRowEndIdx + prepRowsXml.length;
 
     // Límite superior: no puede pasarse a la sección de fotos de PARADA,
@@ -1885,7 +1900,8 @@ async function generateInformeWordReal(informe) {
         const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx) + '</w:tbl>'.length;
         if (limiteSuperior !== -1 && ultimaTablaParEndIdx > limiteSuperior) throw new Error('El borrado de fotos de ejemplo de preparativos quedó fuera de su sección — se aborta para no dañar el documento.');
         const nuevoBloqueFotos = prepFotosEmbebidas.length ? buildBloqueRegistroFotosPreparativosWord(prepFotosEmbebidas) : '';
-        xml = xml.slice(0, primeraTablaParInicio) + nuevoBloqueFotos + xml.slice(ultimaTablaParEndIdx);
+        const bookmarksHuerfanosPrepFotos = extraerBookmarkEndsHuerfanos(xml.slice(primeraTablaParInicio, ultimaTablaParEndIdx));
+        xml = xml.slice(0, primeraTablaParInicio) + nuevoBloqueFotos + bookmarksHuerfanosPrepFotos + xml.slice(ultimaTablaParEndIdx);
       }
     }
   } catch (e) {
@@ -1974,7 +1990,8 @@ async function generateInformeWordReal(informe) {
 
   if (!rowsXml) throw new Error('Esta actividad todavía no tiene comentarios cargados — agrega al menos uno antes de generar el Word.');
 
-  xml = xml.slice(0, headerRowEndIdx) + rowsXml + xml.slice(tblEndIdx);
+  const bookmarksHuerfanosParada = extraerBookmarkEndsHuerfanos(xml.slice(headerRowEndIdx, tblEndIdx));
+  xml = xml.slice(0, headerRowEndIdx) + rowsXml + bookmarksHuerfanosParada + xml.slice(tblEndIdx);
   // Punto a partir del cual buscar "REGISTRO FOTOGRÁFICO" — hay más de una
   // sección con ese mismo título en la plantilla (una antes, de preparativos);
   // la que corresponde a esto es la que viene DESPUÉS de las actividades de parada.
@@ -2030,7 +2047,8 @@ async function generateInformeWordReal(informe) {
       const ultimaFilaExternaEndIdx = xml.indexOf('</w:tr>', ultimaTablaParEndIdx) + '</w:tr>'.length;
 
       const fotosRowsXml = fotosEmbebidas.length ? buildBloqueRegistroFotosWord(fotosEmbebidas) : '';
-      xml = xml.slice(0, primeraFilaInicio) + fotosRowsXml + xml.slice(ultimaFilaExternaEndIdx);
+      const bookmarksHuerfanosParadaFotos = extraerBookmarkEndsHuerfanos(xml.slice(primeraFilaInicio, ultimaFilaExternaEndIdx));
+      xml = xml.slice(0, primeraFilaInicio) + fotosRowsXml + bookmarksHuerfanosParadaFotos + xml.slice(ultimaFilaExternaEndIdx);
     }
   }
 
@@ -2099,7 +2117,8 @@ async function generateInformeWordReal(informe) {
         const filasConclusiones = ots.map((ot) => buildFilaConclusionWord(ot)).join('');
         // El ejemplo real de la plantilla (conclusiones de OTRO informe) se
         // BORRA — solo quedan el encabezado + las actividades de este informe.
-        xml = xml.slice(0, headerRowEndConclusiones) + filasConclusiones + xml.slice(tblEndConclusiones);
+        const bookmarksHuerfanosConcl = extraerBookmarkEndsHuerfanos(xml.slice(headerRowEndConclusiones, tblEndConclusiones));
+        xml = xml.slice(0, headerRowEndConclusiones) + filasConclusiones + bookmarksHuerfanosConcl + xml.slice(tblEndConclusiones);
       }
     }
   } catch (e) {
@@ -2120,7 +2139,8 @@ async function generateInformeWordReal(informe) {
       const tblEndRecomendaciones = xml.indexOf('</w:tbl>', tblStart);
       if (headerRowEndRecomendaciones !== -1 && tblEndRecomendaciones !== -1) {
         const filasRecomendaciones = otsConRecomendacion.map((ot) => buildFilaRecomendacionWord(ot, recomendaciones[ot.otNum].trim())).join('');
-        xml = xml.slice(0, headerRowEndRecomendaciones) + filasRecomendaciones + xml.slice(tblEndRecomendaciones);
+        const bookmarksHuerfanosRecom = extraerBookmarkEndsHuerfanos(xml.slice(headerRowEndRecomendaciones, tblEndRecomendaciones));
+        xml = xml.slice(0, headerRowEndRecomendaciones) + filasRecomendaciones + bookmarksHuerfanosRecom + xml.slice(tblEndRecomendaciones);
       }
     }
   } catch (e) {
