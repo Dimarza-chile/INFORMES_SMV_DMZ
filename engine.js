@@ -1809,8 +1809,9 @@ async function generateInformeWordReal(informe) {
     const itinAnclaIdx = xml.lastIndexOf(ITINERARIO_ANCLA);
     if (itinAnclaIdx !== -1) {
       const itinTblStart = xml.indexOf('<w:tbl>', itinAnclaIdx);
+      const itinHeaderRowEndIdx = itinTblStart !== -1 ? xml.indexOf('</w:tr>', itinTblStart) + '</w:tr>'.length : -1;
       const itinTblEnd = xml.indexOf('</w:tbl>', itinTblStart);
-      if (itinTblStart !== -1 && itinTblEnd !== -1) {
+      if (itinHeaderRowEndIdx !== -1 && itinTblEnd !== -1) {
         let filasItin = '';
         SEED_DATA.turnos.forEach((iso, i) => {
           const fechaTexto = fechaDDMMYYYY(iso.slice(0, 10));
@@ -1819,7 +1820,9 @@ async function generateInformeWordReal(informe) {
           const horaSalida = turnoTipo === 'A' ? '08:00 PM' : '08:00 AM';
           filasItin += buildFilaItinerarioWord(fechaTexto, turnoTipo, horaIngreso, horaSalida);
         });
-        xml = xml.slice(0, itinTblEnd) + filasItin + xml.slice(itinTblEnd);
+        // El ejemplo real que trae la plantilla (turnos de OTRO informe) se
+        // BORRA — solo queda el encabezado + los turnos reales de esta parada.
+        xml = xml.slice(0, itinHeaderRowEndIdx) + filasItin + xml.slice(itinTblEnd);
       }
     }
   } catch (e) {
@@ -1833,54 +1836,56 @@ async function generateInformeWordReal(informe) {
   try {
     const prepTextoRaw = (informe.preparativosTexto || []).filter((b) => b && b.trim());
     const prepFotos = informe.preparativosFotos || [];
-    if (prepTextoRaw.length || prepFotos.length) {
-      const prepAnclaIdx = xml.indexOf(PREPARATIVOS_TABLA_ANCLA);
-      if (prepAnclaIdx === -1) throw new Error('No se encontró la sección de actividades de preparativos en la plantilla.');
-      const prepTblEndIdx = xml.indexOf('</w:tbl>', prepAnclaIdx);
-      if (prepTblEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de actividades de preparativos.');
 
-      let prepRowsXml = '';
-      if (prepTextoRaw.length) {
-        prepRowsXml += buildFilaFechaWord(fechaDDMMYYYY(new Date().toISOString().slice(0, 10)));
-        prepRowsXml += buildFilaTurnoWord('PREPARATIVOS', [{ titulo: 'Actividades de preparativos', bullets: prepTextoRaw }], false);
-        xml = xml.slice(0, prepTblEndIdx) + prepRowsXml + xml.slice(prepTblEndIdx);
-      }
-      const prepBusquedaFotosDesde = prepTblEndIdx + prepRowsXml.length;
+    const prepAnclaIdx = xml.indexOf(PREPARATIVOS_TABLA_ANCLA);
+    if (prepAnclaIdx === -1) throw new Error('No se encontró la sección de actividades de preparativos en la plantilla.');
+    // El ejemplo real que trae la plantilla se BORRA siempre (haya o no
+    // texto/fotos propios de este informe) — solo debe quedar lo que el
+    // usuario realmente cargó.
+    const prepHeaderRowEndIdx = xml.indexOf('</w:tr>', prepAnclaIdx) + '</w:tr>'.length;
+    const prepTblEndIdx = xml.indexOf('</w:tbl>', prepAnclaIdx);
+    if (prepTblEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de actividades de preparativos.');
 
-      if (prepFotos.length) {
-        // Límite superior: no puede pasarse a la sección de fotos de PARADA,
-        // que usa el mismo título de sección más adelante en el documento.
-        const limiteSuperior = xml.indexOf(INFORME_TABLA_ANCLA);
-        const prepFotosAnclaIdx = xml.indexOf(REGISTRO_FOTOS_ANCLA, prepBusquedaFotosDesde);
-        if (prepFotosAnclaIdx !== -1 && (limiteSuperior === -1 || prepFotosAnclaIdx < limiteSuperior)) {
-          const fechaHoy = fechaDDMMYYYY(new Date().toISOString().slice(0, 10));
-          const prepFotosEmbebidas = [];
-          for (const foto of prepFotos) {
-            const preparada = await prepararFotoParaWord(foto.url);
-            if (!preparada) continue;
-            contadorImagen++;
-            const nombreArchivo = `prepFoto${Date.now()}_${contadorImagen}.jpeg`;
-            const rId = `rId${nextRid++}`;
-            zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
-            nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
-            prepFotosEmbebidas.push({
-              fechaTexto: fechaHoy,
-              drawingXml: buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 850000 + contadorImagen),
-              descripcion: foto.descripcion || '',
-            });
-          }
-          if (prepFotosEmbebidas.length) {
-            // A diferencia de la sección de parada, acá cada tabla chica de
-            // par va SUELTA en el cuerpo (sin fila/tabla que la envuelva) —
-            // así que basta con insertar justo después del cierre de la
-            // última tabla chica existente, sin buscar ningún </w:tr>.
-            const ultimoImagenIdx = ultimoIndiceEnRango(xml, 'IMAGEN ', prepFotosAnclaIdx, limiteSuperior);
-            if (ultimoImagenIdx === -1) throw new Error('No se encontró ningún par de fotos existente en la sección de preparativos para usar como referencia de formato.');
-            const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx) + '</w:tbl>'.length;
-            if (limiteSuperior !== -1 && ultimaTablaParEndIdx > limiteSuperior) throw new Error('El punto de inserción de fotos de preparativos quedó fuera de su sección — se aborta para no dañar el documento.');
-            xml = xml.slice(0, ultimaTablaParEndIdx) + buildBloqueRegistroFotosPreparativosWord(prepFotosEmbebidas) + xml.slice(ultimaTablaParEndIdx);
-          }
+    let prepRowsXml = '';
+    if (prepTextoRaw.length) {
+      prepRowsXml += buildFilaFechaWord(fechaDDMMYYYY(new Date().toISOString().slice(0, 10)));
+      prepRowsXml += buildFilaTurnoWord('PREPARATIVOS', [{ titulo: 'Actividades de preparativos', bullets: prepTextoRaw }], false);
+    }
+    xml = xml.slice(0, prepHeaderRowEndIdx) + prepRowsXml + xml.slice(prepTblEndIdx);
+    const prepBusquedaFotosDesde = prepHeaderRowEndIdx + prepRowsXml.length;
+
+    // Límite superior: no puede pasarse a la sección de fotos de PARADA,
+    // que usa el mismo título de sección más adelante en el documento.
+    const limiteSuperior = xml.indexOf(INFORME_TABLA_ANCLA);
+    const prepFotosAnclaIdx = xml.indexOf(REGISTRO_FOTOS_ANCLA, prepBusquedaFotosDesde);
+    if (prepFotosAnclaIdx !== -1 && (limiteSuperior === -1 || prepFotosAnclaIdx < limiteSuperior)) {
+      const primerImagenPrepIdx = xml.indexOf('IMAGEN ', prepFotosAnclaIdx);
+      if (primerImagenPrepIdx !== -1 && (limiteSuperior === -1 || primerImagenPrepIdx < limiteSuperior)) {
+        const fechaHoy = fechaDDMMYYYY(new Date().toISOString().slice(0, 10));
+        const prepFotosEmbebidas = [];
+        for (const foto of prepFotos) {
+          const preparada = await prepararFotoParaWord(foto.url);
+          if (!preparada) continue;
+          contadorImagen++;
+          const nombreArchivo = `prepFoto${Date.now()}_${contadorImagen}.jpeg`;
+          const rId = `rId${nextRid++}`;
+          zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+          nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+          prepFotosEmbebidas.push({
+            fechaTexto: fechaHoy,
+            drawingXml: buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 850000 + contadorImagen),
+            descripcion: foto.descripcion || '',
+          });
         }
+        // A diferencia de la sección de parada, acá cada tabla chica de par
+        // va SUELTA en el cuerpo (sin fila/tabla que la envuelva) — el
+        // primer par arranca en su propio <w:tbl>, sin nada que lo envuelva.
+        const primeraTablaParInicio = xml.lastIndexOf('<w:tbl>', primerImagenPrepIdx);
+        const ultimoImagenIdx = ultimoIndiceEnRango(xml, 'IMAGEN ', prepFotosAnclaIdx, limiteSuperior);
+        const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx) + '</w:tbl>'.length;
+        if (limiteSuperior !== -1 && ultimaTablaParEndIdx > limiteSuperior) throw new Error('El borrado de fotos de ejemplo de preparativos quedó fuera de su sección — se aborta para no dañar el documento.');
+        const nuevoBloqueFotos = prepFotosEmbebidas.length ? buildBloqueRegistroFotosPreparativosWord(prepFotosEmbebidas) : '';
+        xml = xml.slice(0, primeraTablaParInicio) + nuevoBloqueFotos + xml.slice(ultimaTablaParEndIdx);
       }
     }
   } catch (e) {
@@ -1901,10 +1906,14 @@ async function generateInformeWordReal(informe) {
         // supAnclaIdx cae en medio de la celda de la etiqueta (es texto
         // dentro de ella), así que hay que ubicar el <w:tr> que la envuelve
         // para contar celdas desde el inicio real de la fila.
-        const filaDiaInicio = xml.lastIndexOf('<w:tr', supAnclaIdx);
+        // OJO: "<w:tr" (sin más) también matchea "<w:trPr>"/"<w:trHeight>" —
+        // por eso siempre con el espacio después, para que sea inequívocamente
+        // la apertura real de una fila (todas las filas de este documento
+        // traen atributos, nunca "<w:tr>" a secas).
+        const filaDiaInicio = xml.lastIndexOf('<w:tr ', supAnclaIdx);
         const filaDiaEndIdx = xml.indexOf('</w:tr>', supAnclaIdx);
         const valorDiaIdx = avanzarNCeldasWord(xml, filaDiaInicio, 3);
-        const filaNocheInicio = xml.indexOf('<w:tr', filaDiaEndIdx);
+        const filaNocheInicio = xml.indexOf('<w:tr ', filaDiaEndIdx);
         const filaNocheEnd = xml.indexOf('</w:tr>', filaNocheInicio);
         const valorNocheIdx = avanzarNCeldasWord(xml, filaNocheInicio, 3);
         // Se inserta en orden inverso (noche primero) para no invalidar los
@@ -1923,6 +1932,10 @@ async function generateInformeWordReal(informe) {
 
   const anclaIdx = xml.indexOf(INFORME_TABLA_ANCLA);
   if (anclaIdx === -1) throw new Error('No se encontró la sección "ACTIVIDADES REALIZADAS EN PERIODO DE PARADA" en la plantilla — puede que la hayan editado.');
+  // El ejemplo real que trae la plantilla (fechas/turnos de OTRO informe)
+  // se BORRA, no se deja debajo de lo nuevo — solo debe quedar la fila de
+  // título (el ancla de arriba) y, después, las filas reales de este informe.
+  const headerRowEndIdx = xml.indexOf('</w:tr>', anclaIdx) + '</w:tr>'.length;
   const tblEndIdx = xml.indexOf('</w:tbl>', anclaIdx);
   if (tblEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la tabla de actividades.');
 
@@ -1961,11 +1974,11 @@ async function generateInformeWordReal(informe) {
 
   if (!rowsXml) throw new Error('Esta actividad todavía no tiene comentarios cargados — agrega al menos uno antes de generar el Word.');
 
-  xml = xml.slice(0, tblEndIdx) + rowsXml + xml.slice(tblEndIdx);
+  xml = xml.slice(0, headerRowEndIdx) + rowsXml + xml.slice(tblEndIdx);
   // Punto a partir del cual buscar "REGISTRO FOTOGRÁFICO" — hay más de una
   // sección con ese mismo título en la plantilla (una antes, de preparativos);
   // la que corresponde a esto es la que viene DESPUÉS de las actividades de parada.
-  const busquedaFotosDesde = tblEndIdx + rowsXml.length;
+  const busquedaFotosDesde = headerRowEndIdx + rowsXml.length;
 
   // ---- 2) Fotos: se incrustan en la tabla "REGISTRO FOTOGRÁFICO" (2 columnas,
   // celdas de 9x7cm), NO mezcladas con los comentarios de arriba. ----
@@ -1990,30 +2003,35 @@ async function generateInformeWordReal(informe) {
     }
   }
 
-  if (fotosEmbebidas.length) {
+  {
     const fotosAnclaIdx = xml.indexOf(REGISTRO_FOTOS_ANCLA, busquedaFotosDesde);
     if (fotosAnclaIdx === -1) throw new Error('No se encontró la sección "REGISTRO FOTOGRÁFICO" (después de las actividades) en la plantilla — puede que la hayan editado.');
 
     // La estructura real (mapeada del documento): cada par de fotos vive en su
     // propia tabla chica, y esa tabla va dentro de una fila de una tabla más
-    // grande que las contiene a todas. Para agregar pares nuevos como filas
-    // hermanas del último par que ya existe, sin depender de encontrar el
-    // cierre de esa tabla grande (que envuelve mucho más contenido), se ubica
-    // el ÚLTIMO "IMAGEN " ya existente en esta sección → el cierre de SU tabla
-    // chica → el cierre de la fila que la envuelve. Justo ahí se insertan las
-    // filas nuevas.
-    const ultimoImagenIdx = xml.lastIndexOf('IMAGEN ');
-    if (ultimoImagenIdx === -1 || ultimoImagenIdx < fotosAnclaIdx) {
-      throw new Error('No se encontró ningún par de fotos existente en la plantilla para usar como referencia de formato.');
-    }
-    const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx);
-    if (ultimaTablaParEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la última tabla de fotos existente.');
-    const ultimaFilaExternaEndIdx = xml.indexOf('</w:tr>', ultimaTablaParEndIdx);
-    if (ultimaFilaExternaEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la fila que envuelve la última tabla de fotos.');
-    const puntoInsercion = ultimaFilaExternaEndIdx + '</w:tr>'.length;
+    // grande que las contiene a todas. El ejemplo real que trae la plantilla
+    // (fotos de OTRO informe) se BORRA entero — se ubica el PRIMER "IMAGEN "
+    // de esta sección → la fila que lo envuelve (inicio) y el ÚLTIMO "IMAGEN "
+    // → el cierre de SU tabla chica → el cierre de la fila que la envuelve
+    // (fin), y se reemplaza todo ese tramo por los pares reales de este
+    // informe (o por nada, si no hay fotos cargadas).
+    const primerImagenIdx = xml.indexOf('IMAGEN ', fotosAnclaIdx);
+    if (primerImagenIdx !== -1) {
+      // "IMAGEN " cae en la fila del ENCABEZADO de la tabla chica del par
+      // (no en la fila externa que la envuelve) — hay que subir un nivel
+      // más: primero el <w:tbl> de esa tabla chica, y desde ahí recién el
+      // <w:tr> externo real.
+      const primeraTablaChicaInicio = xml.lastIndexOf('<w:tbl>', primerImagenIdx);
+      // Con espacio después de "tr" para no matchear "<w:trPr>"/"<w:trHeight>".
+      const primeraFilaInicio = xml.lastIndexOf('<w:tr ', primeraTablaChicaInicio);
+      const ultimoImagenIdx = xml.lastIndexOf('IMAGEN ');
+      const ultimaTablaParEndIdx = xml.indexOf('</w:tbl>', ultimoImagenIdx);
+      if (ultimaTablaParEndIdx === -1) throw new Error('No se pudo ubicar el cierre de la última tabla de fotos existente.');
+      const ultimaFilaExternaEndIdx = xml.indexOf('</w:tr>', ultimaTablaParEndIdx) + '</w:tr>'.length;
 
-    const fotosRowsXml = buildBloqueRegistroFotosWord(fotosEmbebidas);
-    xml = xml.slice(0, puntoInsercion) + fotosRowsXml + xml.slice(puntoInsercion);
+      const fotosRowsXml = fotosEmbebidas.length ? buildBloqueRegistroFotosWord(fotosEmbebidas) : '';
+      xml = xml.slice(0, primeraFilaInicio) + fotosRowsXml + xml.slice(ultimaFilaExternaEndIdx);
+    }
   }
 
   // ---- Curva S: reemplaza el gráfico de ejemplo que trae la plantilla en
@@ -2075,10 +2093,13 @@ async function generateInformeWordReal(informe) {
     const introIdx = xml.indexOf(CONCLUSIONES_INTRO_ANCLA);
     if (introIdx !== -1) {
       const tblStart = xml.indexOf('<w:tbl>', introIdx);
+      const headerRowEndConclusiones = tblStart !== -1 ? xml.indexOf('</w:tr>', tblStart) + '</w:tr>'.length : -1;
       const tblEndConclusiones = xml.indexOf('</w:tbl>', tblStart);
-      if (tblStart !== -1 && tblEndConclusiones !== -1) {
+      if (headerRowEndConclusiones !== -1 && tblEndConclusiones !== -1) {
         const filasConclusiones = ots.map((ot) => buildFilaConclusionWord(ot)).join('');
-        xml = xml.slice(0, tblEndConclusiones) + filasConclusiones + xml.slice(tblEndConclusiones);
+        // El ejemplo real de la plantilla (conclusiones de OTRO informe) se
+        // BORRA — solo quedan el encabezado + las actividades de este informe.
+        xml = xml.slice(0, headerRowEndConclusiones) + filasConclusiones + xml.slice(tblEndConclusiones);
       }
     }
   } catch (e) {
@@ -2086,19 +2107,20 @@ async function generateInformeWordReal(informe) {
   }
 
   // ---- Recomendaciones: opcional, solo las actividades que tengan texto
-  // cargado en informe.recomendaciones[otNum]. ----
+  // cargado en informe.recomendaciones[otNum]. El ejemplo de la plantilla se
+  // borra siempre — si no hay ninguna recomendación cargada, la tabla queda
+  // con el encabezado solo, sin filas. ----
   try {
     const recomendaciones = informe.recomendaciones || {};
     const otsConRecomendacion = ots.filter((ot) => (recomendaciones[ot.otNum] || '').trim());
-    if (otsConRecomendacion.length) {
-      const introIdx = xml.indexOf(RECOMENDACIONES_INTRO_ANCLA);
-      if (introIdx !== -1) {
-        const tblStart = xml.indexOf('<w:tbl>', introIdx);
-        const tblEndRecomendaciones = xml.indexOf('</w:tbl>', tblStart);
-        if (tblStart !== -1 && tblEndRecomendaciones !== -1) {
-          const filasRecomendaciones = otsConRecomendacion.map((ot) => buildFilaRecomendacionWord(ot, recomendaciones[ot.otNum].trim())).join('');
-          xml = xml.slice(0, tblEndRecomendaciones) + filasRecomendaciones + xml.slice(tblEndRecomendaciones);
-        }
+    const introIdx = xml.indexOf(RECOMENDACIONES_INTRO_ANCLA);
+    if (introIdx !== -1) {
+      const tblStart = xml.indexOf('<w:tbl>', introIdx);
+      const headerRowEndRecomendaciones = tblStart !== -1 ? xml.indexOf('</w:tr>', tblStart) + '</w:tr>'.length : -1;
+      const tblEndRecomendaciones = xml.indexOf('</w:tbl>', tblStart);
+      if (headerRowEndRecomendaciones !== -1 && tblEndRecomendaciones !== -1) {
+        const filasRecomendaciones = otsConRecomendacion.map((ot) => buildFilaRecomendacionWord(ot, recomendaciones[ot.otNum].trim())).join('');
+        xml = xml.slice(0, headerRowEndRecomendaciones) + filasRecomendaciones + xml.slice(tblEndRecomendaciones);
       }
     }
   } catch (e) {
