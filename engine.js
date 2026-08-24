@@ -1180,6 +1180,7 @@ async function guardarInformeAdmin() {
 const INFORME_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PARADA';
 const PREPARATIVOS_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PREPARATIVOS';
 const PORTADA_FOTO_ANCLA = 'DEL SERVICIO DE:';
+const DISTRIBUCION_POBLACION_ANCLA = 'DISTRIBUCIÓN DE POBLACIÓN';
 const OBJETIVO_PRINCIPAL_ANCLA = 'OBJETIVO PRINCIPAL';
 
 // Si el usuario escribió su propio objetivo, se usa tal cual. Si no, se arma
@@ -1832,6 +1833,37 @@ async function generateInformeWordBlob(informe) {
       }
     } catch (e) {
       console.error('No se pudo reemplazar la foto de portada en el Word:', e);
+    }
+  }
+
+  // ---- Distribución de población: mismo patrón que la foto de portada —
+  // el usuario sube directo la captura del cuadro de dotación (Excel/Workpack)
+  // y se reemplaza la imagen de ejemplo, manteniendo el mismo tamaño (cx/cy)
+  // que ya trae la plantilla. ----
+  if (informe.distribucionPoblacionUrl) {
+    try {
+      const distribAnclaIdx = xml.indexOf(DISTRIBUCION_POBLACION_ANCLA, xml.indexOf(DISTRIBUCION_POBLACION_ANCLA) + 1);
+      if (distribAnclaIdx !== -1) {
+        const drawingStartIdx = xml.indexOf('<w:drawing', distribAnclaIdx);
+        if (drawingStartIdx !== -1 && drawingStartIdx - distribAnclaIdx < 4000) {
+          const drawingEndIdx = xml.indexOf('</w:drawing>', drawingStartIdx) + '</w:drawing>'.length;
+          const extentMatch = xml.slice(drawingStartIdx, drawingStartIdx + 400).match(/<wp:extent cx="(\d+)" cy="(\d+)"/);
+          const cxDistrib = extentMatch ? parseInt(extentMatch[1], 10) : Math.round(25 * INFORME_EMU_POR_CM);
+          const cyDistrib = extentMatch ? parseInt(extentMatch[2], 10) : Math.round(9.17 * INFORME_EMU_POR_CM);
+          const preparada = await prepararFotoParaWord(informe.distribucionPoblacionUrl, cxDistrib, cyDistrib);
+          if (preparada) {
+            contadorImagen++;
+            const nombreArchivo = `distribpoblacion_${Date.now()}.jpeg`;
+            const rId = `rId${nextRid++}`;
+            zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+            nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+            const drawingDistribXml = buildDrawingXmlWord(rId, cxDistrib, cyDistrib, 820000 + contadorImagen);
+            xml = xml.slice(0, drawingStartIdx) + drawingDistribXml + xml.slice(drawingEndIdx);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('No se pudo reemplazar la imagen de distribución de población en el Word:', e);
     }
   }
 
