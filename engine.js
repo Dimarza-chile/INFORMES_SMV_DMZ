@@ -5152,6 +5152,39 @@ document.addEventListener('DOMContentLoaded', () => {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.error);
   }, 'principal');
 
+  // Panel "Mantenciones": por ahora esta app solo trabaja con una mantención
+  // (los datos de EMPRESA/CLIENTE/ÁREA vienen de window.BRANDING) — el panel
+  // la muestra como tarjeta activa, y queda listo para cuando haya más de una.
+  safeInit(() => {
+    const backdrop = document.getElementById('mantencionesBackdrop');
+    const btn = document.getElementById('btnMenuMantenciones');
+    btn.addEventListener('click', () => {
+      const b = window.BRANDING || {};
+      const wpIni = SEED_DATA.turnos[0];
+      const wpFin = SEED_DATA.turnos[SEED_DATA.turnos.length - 1];
+      document.getElementById('listaMantenciones').innerHTML = `
+        <div class="mantencion-card">
+          <div class="mantencion-card-top">
+            <span class="mantencion-card-nombre">${escBit(SEED_DATA.paradaNombre.replace(/^SHUTDOWN\s+/i, ''))}</span>
+            <span class="mantencion-card-badge">ACTIVA</span>
+          </div>
+          <dl class="mantencion-card-grid">
+            <dt>EMPRESA</dt><dd>${escBit(b.empresa || '—')}</dd>
+            <dt>CLIENTE</dt><dd>${escBit(b.cliente || '—')}</dd>
+            <dt>ÁREA</dt><dd>${escBit(b.area || '—')}</dd>
+            <dt>FECHAS</dt><dd>${fmtFechaCorta(wpIni)} → ${fmtFechaCorta(wpFin)}</dd>
+          </dl>
+        </div>
+        <p class="mantenciones-nota">Por ahora esta app trabaja con una sola mantención — cuando haya más, vas a poder elegir entre ellas aquí.</p>
+      `;
+      backdrop.classList.add('open');
+      btn.setAttribute('aria-expanded', 'true');
+    });
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) { backdrop.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+    });
+  }, 'panel-mantenciones');
+
   safeInit(() => {
     async function guardarPctActual() {
       if (!sheetCtx) return;
@@ -5357,7 +5390,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', (e) => {
       const header = e.target.closest('header.top');
       if (!header) return;
-      if (e.target.closest('.turno-actual-badge, .informes-row, .eyebrow, #btnToggleHeader')) return;
+      if (e.target.closest('.turno-actual-badge, .informes-row, .eyebrow, #btnToggleHeader, #btnMenuMantenciones')) return;
       if (typeof openInicioView === 'function') openInicioView();
     });
     const headerEl = document.querySelector('header.top');

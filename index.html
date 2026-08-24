@@ -112,6 +112,13 @@
   .logos-row img{ height:34px; background:#fff; border-radius:6px; padding:3px 8px; }
   .dmz-texto{ font-size:13px; font-weight:700; color:#fff; letter-spacing:-.01em; }
 
+  .btn-menu-mantenciones{
+    flex:none; width:32px; height:32px; border-radius:8px; margin-right:2px;
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.22); color:#fff;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+  }
+  .btn-menu-mantenciones:hover{ background:rgba(255,255,255,.16); }
+
   /* Sin foto de sitio real de Centinela todavia — se mantiene el degradado base de
      styles.css, solo con el acento de color de marca (teal) en vez del naranja BHP. */
   .hero::after{ background:radial-gradient(circle at 72% 28%, rgba(31,160,165,.30), transparent 62%); }
@@ -428,6 +435,9 @@
 
   <header class="top">
     <div class="logos-row">
+      <button id="btnMenuMantenciones" class="btn-menu-mantenciones" type="button" title="Mantenciones" aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+      </button>
       <img src="./assets/logo-centinela.jpg" alt="Centinela — Antofagasta Minerals">
       <div class="divider"></div>
       <img src="./assets/logo-dimarza.png" alt="Dimarza Chile SPA">
@@ -724,9 +734,18 @@
   </div>
 </div>
 
+<div class="sheet-backdrop" id="mantencionesBackdrop">
+  <div class="sheet sheet-mantenciones">
+    <div class="handle"></div>
+    <h2>Mantenciones</h2>
+    <p class="meta">Mantención activa en esta app</p>
+    <div id="listaMantenciones"></div>
+  </div>
+</div>
+
 <!-- Marca propia de este cliente (nombre + color en RGB para el PDF) -->
 <script>
-  window.BRANDING = { empresa: "SEMIVA", colorRGB: [31, 160, 165], logoURL: "./assets/logo-centinela.jpg", logoDimarzaURL: "./assets/logo-dimarza.png" };
+  window.BRANDING = { empresa: "SEMIVA", cliente: "CENTINELA", area: "SULFUROS", colorRGB: [31, 160, 165], logoURL: "./assets/logo-centinela.jpg", logoDimarzaURL: "./assets/logo-dimarza.png" };
 </script>
 
 <!-- Firebase SDK (compat, simple de usar sin bundler) -->
