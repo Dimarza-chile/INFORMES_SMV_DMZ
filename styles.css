@@ -177,6 +177,19 @@ input[type=range]::-webkit-slider-thumb{
   color:var(--ink); font-family:var(--mono); font-size:13px; font-weight:600; cursor:pointer;
 }
 .sheet-actions{ display:flex; gap:10px; }
+
+/* ---------- Vista previa del Word (docx-preview) ---------- */
+.sheet-preview-word{ max-width:1040px; }
+.preview-word-header{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
+.preview-word-header h2{ margin:0; }
+.preview-word-actions{ display:flex; gap:8px; flex:none; }
+.preview-word-loading{ display:none; text-align:center; color:var(--ink-muted); padding:50px 0; font-size:13px; }
+.preview-word-contenedor{
+  background:#525659; border-radius:10px; padding:18px; margin-top:14px;
+  overflow-x:auto; max-height:65vh; overflow-y:auto;
+}
+.preview-word-contenedor .docx-preview{ background:#fff; margin:0 auto 18px; box-shadow:0 3px 14px rgba(0,0,0,.4); }
+.preview-word-contenedor .docx-preview:last-child{ margin-bottom:0; }
 .btn{
   flex:1; padding: 13px 0; border-radius: 12px; border:none; font-family: var(--sans);
   font-size:14px; font-weight:700; cursor:pointer;

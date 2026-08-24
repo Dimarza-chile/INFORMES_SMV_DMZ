@@ -871,6 +871,7 @@ function ensureVistaInformeDetalle() {
 
     <div class="informe-card-acciones" style="margin-top:6px; margin-bottom:24px;">
       <a href="#" target="_blank" rel="noopener" class="btn-mini" id="linkAbrirWordInforme" style="display:none;">Abrir Word</a>
+      <button type="button" class="btn-mini" id="btnVistaPreviaWordInforme">👁 Vista previa</button>
       <button type="button" class="btn-mini btn-mini-primary" id="btnRellenarWordInforme">⬇ Rellenar Word</button>
       <button type="button" class="btn-mini" id="btnGenerarPdfInforme">⬇ PDF (borrador)</button>
     </div>
@@ -907,6 +908,13 @@ function ensureVistaInformeDetalle() {
     const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Generando…';
     try { await generateInformeWordReal(state.informeActivo); }
     catch (e) { console.error(e); showToast(e.message || 'No se pudo generar el Word'); }
+    btn.disabled = false; btn.textContent = txt;
+  });
+  document.getElementById('btnVistaPreviaWordInforme').addEventListener('click', async () => {
+    const btn = document.getElementById('btnVistaPreviaWordInforme');
+    const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Generando…';
+    try { await abrirVistaPreviaWord(state.informeActivo); }
+    catch (e) { console.error(e); showToast(e.message || 'No se pudo generar la vista previa'); }
     btn.disabled = false; btn.textContent = txt;
   });
   document.getElementById('btnGenerarPdfInforme').addEventListener('click', async () => {
@@ -1662,7 +1670,10 @@ function buildFilaItinerarioWord(fechaTexto, turnoTipo, horaIngreso, horaSalida)
     + `</w:tr>`;
 }
 
-async function generateInformeWordReal(informe) {
+// Arma el .docx y devuelve {blob, nombreArchivo} SIN descargarlo — así lo
+// puede reusar tanto el botón de descarga directa como la vista previa (que
+// necesita el mismo blob para renderizarlo en pantalla).
+async function generateInformeWordBlob(informe) {
   if (typeof PizZip === 'undefined') throw new Error('PizZip no cargó — revisa tu conexión.');
   const resp = await fetch('./assets/plantilla-informe.docx');
   if (!resp.ok) throw new Error('No se pudo descargar la plantilla Word.');
@@ -2173,12 +2184,58 @@ async function generateInformeWordReal(informe) {
     compressionOptions: { level: 6 },
   });
   const nombreArchivo = `${(informe.nombre || 'informe').replace(/[/\\?%*:|"<>]/g, '-')}.docx`;
+  return { blob, nombreArchivo };
+}
+
+function descargarBlob(blob, nombreArchivo) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = nombreArchivo;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+
+// Mismo comportamiento de siempre: arma el Word y lo descarga directo.
+async function generateInformeWordReal(informe) {
+  const { blob, nombreArchivo } = await generateInformeWordBlob(informe);
+  descargarBlob(blob, nombreArchivo);
+}
+
+// Arma el Word y lo muestra renderizado (texto/tablas/fotos) dentro de un
+// modal, sin descargar nada — para revisar el contenido antes de bajarlo.
+// El render no es 100% idéntico al de Word real (usa docx-preview, una
+// librería que convierte el .docx a HTML), pero alcanza para revisar que
+// los datos/fotos/tablas están donde corresponde.
+async function abrirVistaPreviaWord(informe) {
+  if (typeof window.docx === 'undefined' || !window.docx.renderAsync) {
+    throw new Error('El visor de Word no cargó — revisa tu conexión.');
+  }
+  const backdrop = document.getElementById('previewWordBackdrop');
+  const loading = document.getElementById('previewWordLoading');
+  const contenedor = document.getElementById('previewWordContenedor');
+  const btnDescargar = document.getElementById('previewWordDescargar');
+  contenedor.innerHTML = '';
+  btnDescargar.style.display = 'none';
+  loading.style.display = 'block';
+  backdrop.classList.add('open');
+
+  try {
+    const { blob, nombreArchivo } = await generateInformeWordBlob(informe);
+    await window.docx.renderAsync(blob, contenedor, contenedor, { className: 'docx-preview', inWrapper: true });
+    btnDescargar.style.display = '';
+    btnDescargar.onclick = () => descargarBlob(blob, nombreArchivo);
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  safeInit(() => {
+    const backdrop = document.getElementById('previewWordBackdrop');
+    document.getElementById('previewWordCerrar').addEventListener('click', () => backdrop.classList.remove('open'));
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
+  }, 'preview-word-modal');
+});
 
 async function generateInformePdf(informe) {
   const { jsPDF } = window.jspdf;

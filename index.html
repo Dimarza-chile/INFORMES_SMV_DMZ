@@ -704,6 +704,23 @@
   </div>
 </div>
 
+<!-- Modal: vista previa del Word ya rellenado, antes de descargarlo -->
+<div class="sheet-backdrop" id="previewWordBackdrop">
+  <div class="sheet sheet-preview-word">
+    <div class="handle"></div>
+    <div class="preview-word-header">
+      <h2>Vista previa del informe</h2>
+      <div class="preview-word-actions">
+        <button class="btn ghost" id="previewWordCerrar">Cerrar</button>
+        <button class="btn primary" id="previewWordDescargar" style="display:none;">⬇ Descargar Word</button>
+      </div>
+    </div>
+    <p class="meta" id="previewWordAviso">La vista previa puede verse un poco distinta al Word real (fuentes, saltos de página) — para revisar el formato exacto, descárgalo y ábrelo en Word.</p>
+    <div id="previewWordLoading" class="preview-word-loading">Generando vista previa…</div>
+    <div id="previewWordContenedor" class="preview-word-contenedor"></div>
+  </div>
+</div>
+
 <!-- Marca propia de este cliente (nombre + color en RGB para el PDF) -->
 <script>
   window.BRANDING = { empresa: "SEMIVA", colorRGB: [31, 160, 165], logoURL: "./assets/logo-centinela.jpg", logoDimarzaURL: "./assets/logo-dimarza.png" };
@@ -716,6 +733,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://unpkg.com/pizzip@3.1.6/dist/pizzip.min.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://unpkg.com/docx-preview@0.1.20/dist/docx-preview.min.js"></script>
 
 <script src="./firebase-config.js"></script>
 <script src="./seed-data.js"></script>
