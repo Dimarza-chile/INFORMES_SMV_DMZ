@@ -919,9 +919,24 @@ function ensureVistaInformeDetalle() {
     irAVista('avance');
   });
 
-  document.getElementById('inputPortadaFoto').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'portadaFotoUrl', renderDetallePortadaPreview));
-  document.getElementById('inputDistribPoblacion').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'distribucionPoblacionUrl', renderDetalleDistribPreview));
-  document.getElementById('inputEncargadoFirma').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'encargadoFirmaUrl', renderDetalleFirmaPreview));
+  document.getElementById('inputPortadaFoto').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    mostrarPreviewLocalPendiente('detallePortadaPreviewWrap', file, false);
+    subirArchivoInforme(file, 'portadaFotoUrl', renderDetallePortadaPreview);
+  });
+  document.getElementById('inputDistribPoblacion').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    mostrarPreviewLocalPendiente('detalleDistribPreviewWrap', file, false);
+    subirArchivoInforme(file, 'distribucionPoblacionUrl', renderDetalleDistribPreview);
+  });
+  document.getElementById('inputEncargadoFirma').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    mostrarPreviewLocalPendiente('detalleFirmaPreviewWrap', file, true);
+    subirArchivoInforme(file, 'encargadoFirmaUrl', renderDetalleFirmaPreview);
+  });
   document.getElementById('inputAnexo').addEventListener('change', (e) => subirAnexoInforme(e.target.files[0]));
 
   ['inputObjetivoPrincipal', 'inputAdminCentinela', 'inputAdminSemiva', 'inputEncargadoNombre', 'inputHerramientas'].forEach((id) => {
@@ -1033,6 +1048,24 @@ async function guardarCampoInformeActivo(campo, valor) {
   }
 }
 
+// Antes de que la foto/firma termine de subirse (puede demorar harto con
+// mala señal en terreno), se muestra de una vez una vista previa local del
+// archivo elegido — así queda claro que la selección sí funcionó, en vez de
+// dejar el cuadro en "Sin foto todavía" mientras la subida real avanza en
+// segundo plano.
+function mostrarPreviewLocalPendiente(wrapId, file, esImagenChica) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const blobUrl = URL.createObjectURL(file);
+  const estiloImg = esImagenChica
+    ? 'max-width:180px; max-height:80px; background:#fff; border-radius:8px; display:block; padding:4px; opacity:.55;'
+    : 'max-width:220px; border-radius:8px; display:block; opacity:.55;';
+  wrap.innerHTML = file.type.startsWith('image/')
+    ? `<img src="${blobUrl}" style="${estiloImg}">`
+    : '';
+  wrap.innerHTML += `<p style="font-size:11px; color:var(--brand); margin:4px 0 0;">⏳ Subiendo ${escBit(file.name)}…</p>`;
+}
+
 async function subirArchivoInforme(file, campo, callbackRender) {
   if (!file || !state.informeActivo) return;
   try {
@@ -1046,7 +1079,11 @@ async function subirArchivoInforme(file, campo, callbackRender) {
     showToast('Archivo guardado ✓');
   } catch (e) {
     console.error(e);
-    showToast('No se pudo subir el archivo — revisa tu conexión');
+    showToast('No se pudo subir el archivo — revisa tu conexión, e inténtalo de nuevo');
+    // Se descarta la vista previa "Subiendo…" y se vuelve a mostrar lo que
+    // de verdad quedó guardado — para no dejar en pantalla algo que en
+    // realidad nunca llegó a subirse.
+    if (callbackRender) callbackRender();
   }
 }
 
