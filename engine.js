@@ -1115,7 +1115,8 @@ function abrirInformeDetalle(id) {
 }
 
 function abrirModalInforme() {
-  document.getElementById('informeNombre').value = '';
+  document.getElementById('informeNumero').value = '';
+  document.getElementById('informeTituloGeneral').value = '';
   informePendingOts = [];
   const wrap = document.getElementById('informeOtsList');
   const areas = [...new Set(allOts().map((o) => o.area))];
@@ -1138,13 +1139,17 @@ function abrirModalInforme() {
 }
 
 async function guardarInformeAdmin() {
-  const nombre = document.getElementById('informeNombre').value.trim();
-  if (!nombre) { showToast('Escribe el nombre del informe'); return; }
+  const numero = document.getElementById('informeNumero').value.trim();
+  const tituloGeneral = document.getElementById('informeTituloGeneral').value.trim();
+  if (!numero) { showToast('Escribe el N° de informe'); return; }
+  if (!tituloGeneral) { showToast('Escribe el título del trabajo'); return; }
   if (!informePendingOts.length) { showToast('Elige al menos una actividad'); return; }
+  const codigo = `IT-MCEN-${numero}-SUL`;
+  const nombre = `${codigo} — ${tituloGeneral}`;
   const btn = document.getElementById('informeSave');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    await informesCollection().add({ nombre, otNums: informePendingOts, createdAt: Date.now() });
+    await informesCollection().add({ nombre, numero, tituloGeneral, otNums: informePendingOts, createdAt: Date.now() });
     showToast('Informe guardado ✓');
     document.getElementById('informeBackdrop').classList.remove('open');
   } catch (e) {
@@ -1501,6 +1506,77 @@ function reemplazarValorCeldaWord(xml, labelIdx, texto) {
   return xml.slice(0, valueTcStart) + nuevaCelda + xml.slice(valueTcEnd);
 }
 
+// El título general, el área y el código del informe (IT-MCEN-XXX-SUL) NO
+// son texto suelto: son content controls (SDT) de Word enlazados a un campo
+// de customXml/item1.xml (Nombre0/Nombre1/Nombre14) — por eso el mismo
+// título aparece en la portada, en el encabezado de CADA página, en el
+// índice y en conclusiones/recomendaciones: todos apuntan al mismo dato.
+// Word solo re-sincroniza esos controles con el dato real si el usuario
+// fuerza "Actualizar campos", así que hay que dejar ya escrito el texto
+// correcto en cada aparición (no alcanza con cambiar solo el dato fuente).
+// Recibe el XML de UNA sola parte del documento (document.xml, un header o
+// un footer) y reemplaza el texto visible de TODAS las apariciones de ese
+// campo en esa parte.
+function reemplazarTodosLosSdtDeCampo(xml, nombreCampo, nuevoTexto) {
+  const marcador = `ns0:${nombreCampo}[1]`;
+  const reemplazos = [];
+  let cursor = 0;
+  while (true) {
+    const idx = xml.indexOf(marcador, cursor);
+    if (idx === -1) break;
+    cursor = idx + marcador.length;
+    const sdtContentStart = xml.indexOf('<w:sdtContent>', idx);
+    const sdtContentEnd = xml.indexOf('</w:sdtContent>', sdtContentStart);
+    if (sdtContentStart === -1 || sdtContentEnd === -1) continue;
+    const bloque = xml.slice(sdtContentStart, sdtContentEnd);
+    const m = bloque.match(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/);
+    if (!m) continue;
+    const runStart = sdtContentStart + m.index;
+    reemplazos.push({ start: runStart, end: runStart + m[0].length, prefix: m[0].slice(0, m[0].indexOf('>') + 1) });
+  }
+  reemplazos.sort((a, b) => b.start - a.start);
+  let out = xml;
+  reemplazos.forEach(({ start, end, prefix }) => {
+    out = out.slice(0, start) + prefix + escXmlWord(nuevoTexto) + '</w:t>' + out.slice(end);
+  });
+  return out;
+}
+
+// Aplica reemplazarTodosLosSdtDeCampo a TODAS las partes del documento donde
+// aparece cada campo (mapeado de la plantilla real: document.xml,
+// header1/3/4.xml, footer1.xml) y además actualiza customXml/item1.xml (el
+// dato fuente, por si el usuario alguna vez fuerza "Actualizar campos").
+function actualizarTituloInformeEnWord(zip, campos) {
+  const partesConTexto = ['word/document.xml', 'word/header1.xml', 'word/header3.xml', 'word/header4.xml', 'word/footer1.xml'];
+  partesConTexto.forEach((parte) => {
+    const archivo = zip.file(parte);
+    if (!archivo) return;
+    let contenido = archivo.asText();
+    let cambio = false;
+    Object.entries(campos).forEach(([nombreCampo, valor]) => {
+      if (valor === undefined) return;
+      const nuevo = reemplazarTodosLosSdtDeCampo(contenido, nombreCampo, valor);
+      if (nuevo !== contenido) { contenido = nuevo; cambio = true; }
+    });
+    if (cambio) zip.file(parte, contenido);
+  });
+
+  const customXmlFile = zip.file('customXml/item1.xml');
+  if (customXmlFile) {
+    let customXml = customXmlFile.asText();
+    let cambio = false;
+    Object.entries(campos).forEach(([nombreCampo, valor]) => {
+      if (valor === undefined) return;
+      const regex = new RegExp(`<${nombreCampo}>[\\s\\S]*?</${nombreCampo}>`);
+      if (regex.test(customXml)) {
+        customXml = customXml.replace(regex, `<${nombreCampo}>${escXmlWord(valor)}</${nombreCampo}>`);
+        cambio = true;
+      }
+    });
+    if (cambio) zip.file('customXml/item1.xml', customXml);
+  }
+}
+
 // Avanza N celdas <w:tc> desde una posición dada, devolviendo el índice de
 // inicio de la N-ésima (n=1 es la primera después de `desde`) — para navegar
 // filas de varias columnas sin depender de texto (la fila de Supervisor
@@ -1699,6 +1775,23 @@ async function generateInformeWordBlob(informe) {
   // recomendaciones) — no toca el código del informe (IT-MCEN-XXX-SUL, que
   // sí debe conservar "MCEN").
   xml = xml.split('<w:t>MCEN</w:t>').join('<w:t>MINERA CENTINELA</w:t>');
+
+  // Título del informe (código IT-MCEN-XXX-SUL + título del trabajo): son
+  // content controls repetidos en portada, encabezado de cada página, índice
+  // y conclusiones/recomendaciones — se actualizan todas las apariciones a
+  // la vez. Si el informe no tiene número/título propio todavía (viejo, o
+  // recién creado sin completar), se deja el de la plantilla.
+  if (informe.numero || informe.tituloGeneral) {
+    actualizarTituloInformeEnWord(zip, {
+      Nombre14: informe.numero ? `IT-MCEN-${informe.numero}-SUL` : undefined,
+      Nombre0: informe.tituloGeneral ? informe.tituloGeneral.toUpperCase() : undefined,
+    });
+    // document.xml se acaba de reescribir en el zip por actualizarTituloInformeEnWord
+    // (para sus propias apariciones) — hay que releerlo para seguir editando
+    // sobre esa versión actualizada, si no el resto de esta función pisaría
+    // ese cambio al final con la `xml` vieja.
+    xml = zip.file('word/document.xml').asText();
+  }
 
   // Relaciones de imágenes: se usan/comparten entre TODAS las secciones que
   // incrustan fotos (portada, preparativos, parada, Curva S) — una sola
@@ -2177,7 +2270,17 @@ async function generateInformeWordBlob(informe) {
 
   // Verificación antes de entregar el archivo: si el XML quedó mal formado
   // (una etiqueta sin cerrar, algo así), mejor fallar acá con un error claro
-  // que entregar un .docx que Word no pueda abrir.
+  // que entregar un .docx que Word no pueda abrir. Incluye los encabezados/
+  // pie de página y el customXml, que también se tocan (título del informe).
+  const partesAVerificar = ['word/header1.xml', 'word/header3.xml', 'word/header4.xml', 'word/footer1.xml', 'customXml/item1.xml'];
+  for (const parte of partesAVerificar) {
+    const archivo = zip.file(parte);
+    if (!archivo) continue;
+    const check = new DOMParser().parseFromString(archivo.asText(), 'application/xml');
+    if (check.getElementsByTagName('parsererror').length) {
+      throw new Error(`El XML de ${parte} quedó mal formado — no se generó el archivo para no entregar un Word roto.`);
+    }
+  }
   const parseCheck = new DOMParser().parseFromString(xml, 'application/xml');
   if (parseCheck.getElementsByTagName('parsererror').length) {
     throw new Error('El XML generado quedó mal formado — no se generó el archivo para no entregar un Word roto.');
