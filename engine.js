@@ -788,11 +788,35 @@ function renderVistaInformes() {
     <div class="informe-card-grande" data-abririnforme="${inf.id}">
       <div class="informe-card-nombre">📝 ${escBit(inf.nombre)}</div>
       <div class="informe-card-meta">${(inf.otNums || []).length} actividad(es)</div>
+      <button type="button" class="btn-borrar-informe" data-borrarinforme="${inf.id}" title="Eliminar informe">🗑</button>
       <span class="informe-card-flecha">›</span>
     </div>`).join('');
   wrap.querySelectorAll('[data-abririnforme]').forEach((card) => {
     card.addEventListener('click', () => abrirInformeDetalle(card.dataset.abririnforme));
   });
+  wrap.querySelectorAll('[data-borrarinforme]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      borrarInforme(btn.dataset.borrarinforme);
+    });
+  });
+}
+
+function borrarInforme(id, alBorrar) {
+  const inf = state.informes.find((i) => i.id === id);
+  if (!inf) return;
+  if (!confirm(`¿Eliminar el informe "${inf.nombre}"? Esta acción no se puede deshacer (las actividades y su avance NO se borran, solo este informe).`)) return;
+  // No se espera la confirmación del servidor antes de avanzar: en terreno con
+  // mala señal esa confirmación puede tardar mucho o no llegar, y dejaría la
+  // pantalla de detalle trabada. state.informes ya se actualiza al instante
+  // (caché local de Firestore), así que la navegación puede seguir de una vez;
+  // si el borrado falla de verdad, el informe simplemente reaparece en la lista.
+  informesCollection().doc(id).delete().catch((e) => {
+    console.error(e);
+    showToast('No se pudo eliminar — revisa tu conexión');
+  });
+  showToast('Informe eliminado ✓');
+  if (alBorrar) alBorrar();
 }
 
 // ---- Detalle de un informe: la "portada de datos" (foto, objetivo, tabla de
@@ -811,6 +835,7 @@ function ensureVistaInformeDetalle() {
     <div class="informes-header">
       <button type="button" class="btn-back" id="btnVolverDeDetalleInforme" title="Volver a Informes">${ICON_BACK}</button>
       <h2 id="detalleInformeNombre">—</h2>
+      <button type="button" class="btn-borrar-informe" id="btnBorrarInformeDetalle" title="Eliminar informe" style="font-size:18px;">🗑</button>
     </div>
 
     <button type="button" class="btn-entrar" id="btnVerActividadesInforme" style="width:100%; margin-bottom:16px;">📋 Ver actividades de este informe</button>
@@ -822,20 +847,25 @@ function ensureVistaInformeDetalle() {
     </div>
 
     <div class="informe-form-bloque">
+      <label class="rotulo-mini">Elaborado por (encargado de este informe)</label>
+      <label>Nombre del supervisor</label>
+      <input type="text" id="inputEncargadoNombre" placeholder="Nombre">
+      <label>Firma (foto o escaneo)</label>
+      <div id="detalleFirmaPreviewWrap"></div>
+      <label class="foto-slot-btn" style="display:inline-block; margin-top:6px;">✍️ Elegir/cambiar firma<input type="file" accept="image/*" id="inputEncargadoFirma" style="display:none;"></label>
+    </div>
+
+    <div class="informe-form-bloque">
       <label class="rotulo-mini">Objetivo principal</label>
       <textarea id="inputObjetivoPrincipal" rows="4" placeholder="Ej: Ejecutar el cambio de ductos y válvulas del área Fallback, cumpliendo con los tiempos y estándares de seguridad establecidos..."></textarea>
     </div>
 
     <div class="informe-form-bloque">
-      <label class="rotulo-mini">Administradores y supervisores</label>
+      <label class="rotulo-mini">Administradores de contrato</label>
       <label>Administrador de Contratos Centinela</label>
       <input type="text" id="inputAdminCentinela" placeholder="Nombre">
       <label>Administrador de Contratos SEMIVA Chile SPA</label>
       <input type="text" id="inputAdminSemiva" placeholder="Nombre">
-      <label>Supervisor Mecánico Centinela</label>
-      <input type="text" id="inputSupMecCentinela" placeholder="Nombre">
-      <label>Supervisor Mecánico SEMIVA</label>
-      <input type="text" id="inputSupMecSemiva" placeholder="Nombre">
     </div>
 
     <div class="informe-form-bloque">
@@ -879,6 +909,10 @@ function ensureVistaInformeDetalle() {
   main.appendChild(div);
 
   document.getElementById('btnVolverDeDetalleInforme').addEventListener('click', () => { renderVistaInformes(); irAVista('informes'); });
+  document.getElementById('btnBorrarInformeDetalle').addEventListener('click', () => {
+    if (!state.informeActivo) return;
+    borrarInforme(state.informeActivo.id, () => { renderVistaInformes(); irAVista('informes'); });
+  });
   document.getElementById('btnVerActividadesInforme').addEventListener('click', () => {
     if (!state.informeActivo) return;
     state.filtroInforme = (state.informeActivo.otNums || []).map(String);
@@ -887,12 +921,13 @@ function ensureVistaInformeDetalle() {
 
   document.getElementById('inputPortadaFoto').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'portadaFotoUrl', renderDetallePortadaPreview));
   document.getElementById('inputDistribPoblacion').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'distribucionPoblacionUrl', renderDetalleDistribPreview));
+  document.getElementById('inputEncargadoFirma').addEventListener('change', (e) => subirArchivoInforme(e.target.files[0], 'encargadoFirmaUrl', renderDetalleFirmaPreview));
   document.getElementById('inputAnexo').addEventListener('change', (e) => subirAnexoInforme(e.target.files[0]));
 
-  ['inputObjetivoPrincipal', 'inputAdminCentinela', 'inputAdminSemiva', 'inputSupMecCentinela', 'inputSupMecSemiva', 'inputHerramientas'].forEach((id) => {
+  ['inputObjetivoPrincipal', 'inputAdminCentinela', 'inputAdminSemiva', 'inputEncargadoNombre', 'inputHerramientas'].forEach((id) => {
     const campoMap = {
       inputObjetivoPrincipal: 'objetivoPrincipal', inputAdminCentinela: 'adminCentinela', inputAdminSemiva: 'adminSemiva',
-      inputSupMecCentinela: 'supMecCentinela', inputSupMecSemiva: 'supMecSemiva', inputHerramientas: 'herramientasTexto',
+      inputEncargadoNombre: 'encargadoNombre', inputHerramientas: 'herramientasTexto',
     };
     document.getElementById(id).addEventListener('blur', (e) => guardarCampoInformeActivo(campoMap[id], e.target.value));
   });
@@ -931,6 +966,13 @@ function renderDetallePortadaPreview() {
   if (!wrap || !state.informeActivo) return;
   const url = state.informeActivo.portadaFotoUrl;
   wrap.innerHTML = url ? `<img src="${url}" style="max-width:220px; border-radius:8px; display:block;">` : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin foto todavía.</p>';
+}
+
+function renderDetalleFirmaPreview() {
+  const wrap = document.getElementById('detalleFirmaPreviewWrap');
+  if (!wrap || !state.informeActivo) return;
+  const url = state.informeActivo.encargadoFirmaUrl;
+  wrap.innerHTML = url ? `<img src="${url}" style="max-width:180px; max-height:80px; background:#fff; border-radius:8px; display:block; padding:4px;">` : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin firma todavía.</p>';
 }
 
 function renderDetalleDistribPreview() {
@@ -1096,12 +1138,12 @@ function abrirInformeDetalle(id) {
   document.getElementById('inputObjetivoPrincipal').value = inf.objetivoPrincipal || '';
   document.getElementById('inputAdminCentinela').value = inf.adminCentinela || '';
   document.getElementById('inputAdminSemiva').value = inf.adminSemiva || '';
-  document.getElementById('inputSupMecCentinela').value = inf.supMecCentinela || '';
-  document.getElementById('inputSupMecSemiva').value = inf.supMecSemiva || '';
+  document.getElementById('inputEncargadoNombre').value = inf.encargadoNombre || '';
   document.getElementById('inputHerramientas').value = inf.herramientasTexto || '';
   document.getElementById('inputPreparativosTexto').value = (inf.preparativosTexto || []).join('\n');
   preparativosFotoRows = (inf.preparativosFotos || []).map((f) => ({ file: null, previewUrl: f.url, descripcion: f.descripcion }));
   renderPreparativosFotoRows();
+  renderDetalleFirmaPreview();
 
   const linkWord = document.getElementById('linkAbrirWordInforme');
   if (inf.url) { linkWord.href = inf.url; linkWord.style.display = ''; } else { linkWord.style.display = 'none'; }
@@ -1181,6 +1223,7 @@ const INFORME_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PARADA';
 const PREPARATIVOS_TABLA_ANCLA = 'ACTIVIDADES REALIZADAS EN PERIODO DE PREPARATIVOS';
 const PORTADA_FOTO_ANCLA = 'DEL SERVICIO DE:';
 const DISTRIBUCION_POBLACION_ANCLA = 'DISTRIBUCIÓN DE POBLACIÓN';
+const ENCARGADO_ANCLA = 'ENCARGADO';
 const OBJETIVO_PRINCIPAL_ANCLA = 'OBJETIVO PRINCIPAL';
 
 // Si el usuario escribió su propio objetivo, se usa tal cual. Si no, se arma
@@ -1307,6 +1350,37 @@ async function prepararFotoParaWord(url, cxDestino, cyDestino) {
     return { bytes, cx, cy };
   } catch (e) {
     console.error('No se pudo preparar una foto para el Word:', e);
+    return null;
+  }
+}
+
+// Firma escaneada/foteada: a diferencia de una foto de actividad, NO se
+// recorta a una proporción fija — se escala completa a una altura fija
+// (2cm, igual que las firmas de ejemplo que ya trae la plantilla) y el
+// ancho se calcula solo, respetando la proporción real de la imagen. Se usa
+// PNG (no JPEG) para conservar la transparencia si la firma la trae.
+async function prepararFirmaParaWord(url, cyDestino) {
+  try {
+    const r = await fetch(url);
+    const blob = await r.blob();
+    const bitmap = await createImageBitmap(blob);
+    const cy = cyDestino || Math.round(2 * INFORME_EMU_POR_CM);
+    const cx = Math.round(cy * (bitmap.width / bitmap.height));
+
+    const maxDim = 800;
+    let outW = bitmap.width, outH = bitmap.height;
+    if (outW > maxDim || outH > maxDim) {
+      const s = maxDim / Math.max(outW, outH);
+      outW = Math.round(outW * s); outH = Math.round(outH * s);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = outW; canvas.height = outH;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, outW, outH);
+    const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const bytes = new Uint8Array(await outBlob.arrayBuffer());
+    return { bytes, cx, cy };
+  } catch (e) {
+    console.error('No se pudo preparar la firma para el Word:', e);
     return null;
   }
 }
@@ -1607,6 +1681,20 @@ function insertarValorCeldaVaciaWord(xml, tcStartIdx, texto) {
   return xml.slice(0, tcStartIdx) + nuevaCelda + xml.slice(tcEndIdx);
 }
 
+// Mismo patrón que insertarValorCeldaVaciaWord, pero para meter un <w:drawing>
+// (una imagen) en vez de texto — el caso de la celda de firma, que viene
+// vacía en la plantilla (a diferencia de las otras dos, que ya traen una
+// firma de ejemplo como imagen).
+function insertarDrawingEnCeldaVaciaWord(xml, tcStartIdx, drawingXml) {
+  const tcEndIdx = xml.indexOf('</w:tc>', tcStartIdx) + '</w:tc>'.length;
+  const celda = xml.slice(tcStartIdx, tcEndIdx);
+  const pEndIdx = celda.indexOf('</w:p>');
+  if (pEndIdx === -1) return xml;
+  const run = `<w:r>${drawingXml}</w:r>`;
+  const nuevaCelda = celda.slice(0, pEndIdx) + run + celda.slice(pEndIdx);
+  return xml.slice(0, tcStartIdx) + nuevaCelda + xml.slice(tcEndIdx);
+}
+
 // El supervisor de un informe no se pide manualmente — se calcula desde los
 // supervisores YA asignados por turno a cada actividad (OT) del informe
 // (los mismos que se usan para filtrar/agrupar en el resto de la app). Si
@@ -1864,6 +1952,40 @@ async function generateInformeWordBlob(informe) {
       }
     } catch (e) {
       console.error('No se pudo reemplazar la imagen de distribución de población en el Word:', e);
+    }
+  }
+
+  // ---- ENCARGADO / FIRMA (columna "ELABORADO POR" de la tabla de portada):
+  // nombre del supervisor a cargo de este informe + su firma escaneada. Las
+  // otras dos columnas (REVISADO/VALIDADO POR) ya traen su nombre y firma
+  // fijos en la plantilla — no se tocan. ----
+  if (informe.encargadoNombre || informe.encargadoFirmaUrl) {
+    try {
+      const encargadoIdx = xml.indexOf(ENCARGADO_ANCLA);
+      if (encargadoIdx !== -1) {
+        if (informe.encargadoNombre && informe.encargadoNombre.trim()) {
+          xml = reemplazarValorCeldaWord(xml, encargadoIdx, informe.encargadoNombre.trim());
+        }
+        if (informe.encargadoFirmaUrl) {
+          const firmaLabelIdx = xml.indexOf('FIRMA:', encargadoIdx);
+          if (firmaLabelIdx !== -1) {
+            const firmaLabelTcEnd = xml.indexOf('</w:tc>', firmaLabelIdx);
+            const firmaValueTcStart = xml.indexOf('<w:tc>', firmaLabelTcEnd);
+            const preparada = await prepararFirmaParaWord(informe.encargadoFirmaUrl, Math.round(2 * INFORME_EMU_POR_CM));
+            if (preparada) {
+              contadorImagen++;
+              const nombreArchivo = `firma_${Date.now()}.png`;
+              const rId = `rId${nextRid++}`;
+              zip.file(`word/media/${nombreArchivo}`, preparada.bytes);
+              nuevasRelsXml += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreArchivo}"/>`;
+              const drawingFirmaXml = buildDrawingXmlWord(rId, preparada.cx, preparada.cy, 830000 + contadorImagen);
+              xml = insertarDrawingEnCeldaVaciaWord(xml, firmaValueTcStart, drawingFirmaXml);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('No se pudo agregar el encargado/firma en el Word:', e);
     }
   }
 
