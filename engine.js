@@ -1470,17 +1470,17 @@ function generarConclusionTextoOt(ot) {
 }
 
 function buildFilaConclusionWord(ot) {
+  const otTexto = ot.tipo === 'Emergente' ? 'EMERGENTE' : ot.otNum;
   return buildFilaItemTextoWord(CONCLUSIONES_NUM_ID, [
-    { text: `OT: ${ot.tipo === 'Emergente' ? 'EMERGENTE' : ot.otNum}`, bold: true },
-    { text: tituloSinEquipo(ot.descripcion), bold: true },
+    { text: `OT: ${otTexto} | ${tituloSinEquipo(ot.descripcion).toUpperCase()}`, bold: true },
     { text: generarConclusionTextoOt(ot), bold: false },
   ]);
 }
 
 function buildFilaRecomendacionWord(ot, texto) {
+  const otTexto = ot.tipo === 'Emergente' ? 'EMERGENTE' : ot.otNum;
   return buildFilaItemTextoWord(RECOMENDACIONES_NUM_ID, [
-    { text: `OT: ${ot.tipo === 'Emergente' ? 'EMERGENTE' : ot.otNum}`, bold: true },
-    { text: tituloSinEquipo(ot.descripcion), bold: true },
+    { text: `OT: ${otTexto} | ${tituloSinEquipo(ot.descripcion).toUpperCase()}`, bold: true },
     { text: texto, bold: false },
   ]);
 }
@@ -1608,21 +1608,30 @@ function buildParrafoImagenCenteredWord(drawingXml) {
 // patrón ya usado para la Curva S).
 function buildPieChartCumplimientoSvg(datos, W, H) {
   const total = datos.reduce((s, d) => s + d.count, 0) || 1;
-  const cx = W / 2, cy = H / 2 + 10, r = Math.min(W, H) * 0.26;
+  const cx = W / 2, cy = H / 2, r = Math.min(W, H) * 0.26;
   const rad = (a) => (a * Math.PI) / 180;
   let anguloAcum = -90;
   const slices = [];
   const labels = [];
+  // Cuántas categorías tienen datos — si es una sola (100%), un <path> de
+  // arco no puede dibujar un círculo completo (el punto de inicio y de fin
+  // del arco quedan exactamente encimados, así que el navegador no dibuja
+  // nada) — hay que usar un <circle> directamente en ese caso.
+  const categoriasConDatos = datos.filter((d) => d.count).length;
   datos.forEach((d) => {
     if (!d.count) return;
     const frac = d.count / total;
     const anguloIni = anguloAcum;
     const anguloFin = anguloAcum + frac * 360;
     anguloAcum = anguloFin;
-    const x1 = cx + r * Math.cos(rad(anguloIni)), y1 = cy + r * Math.sin(rad(anguloIni));
-    const x2 = cx + r * Math.cos(rad(anguloFin)), y2 = cy + r * Math.sin(rad(anguloFin));
-    const largeArc = anguloFin - anguloIni > 180 ? 1 : 0;
-    slices.push(`<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${d.color}" stroke="#ffffff" stroke-width="1.5"/>`);
+    if (categoriasConDatos === 1) {
+      slices.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${d.color}" stroke="#ffffff" stroke-width="1.5"/>`);
+    } else {
+      const x1 = cx + r * Math.cos(rad(anguloIni)), y1 = cy + r * Math.sin(rad(anguloIni));
+      const x2 = cx + r * Math.cos(rad(anguloFin)), y2 = cy + r * Math.sin(rad(anguloFin));
+      const largeArc = anguloFin - anguloIni > 180 ? 1 : 0;
+      slices.push(`<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${d.color}" stroke="#ffffff" stroke-width="1.5"/>`);
+    }
 
     const anguloMedio = (anguloIni + anguloFin) / 2;
     const rLabel = r * 1.42;
@@ -1635,8 +1644,10 @@ function buildPieChartCumplimientoSvg(datos, W, H) {
     labels.push(`<text x="${lx.toFixed(2)}" y="${(ly - 5).toFixed(2)}" text-anchor="${anchor}" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#333333">${escXmlWord(d.label)}</text>`);
     labels.push(`<text x="${lx.toFixed(2)}" y="${(ly + 10).toFixed(2)}" text-anchor="${anchor}" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#333333">${d.count}; ${pct}%</text>`);
   });
+  // Sin título propio: el documento ya trae el encabezado "CUMPLIMIENTO
+  // MECÁNICO SOBRE ACTIVIDADES" justo arriba de esta imagen — repetirlo acá
+  // quedaba duplicado.
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${W / 2}" y="20" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#404040">CUMPLIMIENTO MECÁNICO SOBRE ACTIVIDADES</text>
     ${slices.join('')}
     ${labels.join('')}
   </svg>`;
@@ -1682,6 +1693,12 @@ async function generateInformeWordBlob(informe) {
   const docFile = zip.file('word/document.xml');
   if (!docFile) throw new Error('La plantilla no tiene word/document.xml — ¿es un .docx válido?');
   let xml = docFile.asText();
+
+  // "MCEN" (abreviatura de Minera Centinela) → nombre completo. Solo estas 2
+  // ocurrencias puntuales en la plantilla (intro de conclusiones y de
+  // recomendaciones) — no toca el código del informe (IT-MCEN-XXX-SUL, que
+  // sí debe conservar "MCEN").
+  xml = xml.split('<w:t>MCEN</w:t>').join('<w:t>MINERA CENTINELA</w:t>');
 
   // Relaciones de imágenes: se usan/comparten entre TODAS las secciones que
   // incrustan fotos (portada, preparativos, parada, Curva S) — una sola
