@@ -1,4 +1,4 @@
-const CACHE_NAME = 'curva-s-v7';
+const CACHE_NAME = 'curva-s-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -45,8 +45,14 @@ self.addEventListener('fetch', (event) => {
     // hasta quien sabe cuando.
     fetch(event.request, { cache: 'reload' })
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        // Solo se guarda si de verdad vino bien (200) — si no, un error
+        // pasajero (por ejemplo justo mientras GitHub Pages termina de
+        // publicar una actualizacion) quedaba pegado en la cache para
+        // siempre y se seguia sirviendo como si fuera la pagina real.
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() => caches.match(event.request))
