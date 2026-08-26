@@ -1076,8 +1076,18 @@ function mostrarPreviewLocalPendiente(wrapId, file, esImagenChica) {
   wrap.innerHTML += `<p style="font-size:11px; color:var(--brand); margin:4px 0 0;">⏳ Subiendo ${escBit(file.name)}…</p>`;
 }
 
+// Mientras haya alguna subida real en curso (foto/firma/anexo), se avisa si
+// se intenta cerrar o refrescar la pestaña — con mala señal una subida puede
+// demorar bastante, y si se refresca antes de que termine, se pierde entera
+// aunque la vista previa local ya la mostraba como si hubiera funcionado.
+let subidasInformeEnCurso = 0;
+window.addEventListener('beforeunload', (e) => {
+  if (subidasInformeEnCurso > 0) { e.preventDefault(); e.returnValue = ''; }
+});
+
 async function subirArchivoInforme(file, campo, callbackRender) {
   if (!file || !state.informeActivo) return;
+  subidasInformeEnCurso++;
   try {
     const storage = firebase.storage();
     const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/${campo}_${Date.now()}_${file.name}`;
@@ -1094,6 +1104,8 @@ async function subirArchivoInforme(file, campo, callbackRender) {
     // de verdad quedó guardado — para no dejar en pantalla algo que en
     // realidad nunca llegó a subirse.
     if (callbackRender) callbackRender();
+  } finally {
+    subidasInformeEnCurso--;
   }
 }
 
@@ -1102,6 +1114,7 @@ async function subirAnexoInforme(file) {
   const pendiente = { tempId: Date.now() + '_' + file.name, nombre: file.name };
   anexosPendientes.push(pendiente);
   renderAnexosLista();
+  subidasInformeEnCurso++;
   try {
     const storage = firebase.storage();
     const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/anexos/${Date.now()}_${file.name}`;
@@ -1115,6 +1128,8 @@ async function subirAnexoInforme(file) {
   } catch (e) {
     console.error(e);
     showToast('No se pudo subir el anexo — revisa tu conexión, e inténtalo de nuevo');
+  } finally {
+    subidasInformeEnCurso--;
   }
   anexosPendientes = anexosPendientes.filter((p) => p.tempId !== pendiente.tempId);
   renderAnexosLista();
