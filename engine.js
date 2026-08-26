@@ -42,6 +42,13 @@ function initFirebase() {
   try {
     firebase.initializeApp(FIREBASE_CONFIG);
     state.db = firebase.firestore();
+    // Muchas redes de faena/oficina (proxy, firewall, antivirus corporativo)
+    // bloquean o cortan la conexión en tiempo real (streaming) que Firestore
+    // usa por defecto — las escrituras quedan "pendientes" para siempre sin
+    // ningún error visible, aunque el resto de la app funcione. Con esto,
+    // Firestore prueba esa conexión y si no funciona bien, cambia sola a
+    // long-polling (peticiones normales de HTTP, que sí pasan esos filtros).
+    try { state.db.settings({ experimentalAutoDetectLongPolling: true }); } catch (e) {}
     try { state.db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
     listenLive();
     listenComponentes();
@@ -794,8 +801,11 @@ function renderVistaInformes() {
     <div class="informe-card-grande" data-abririnforme="${inf.id}">
       <div class="informe-card-nombre">📝 ${escBit(inf.nombre || '(sin nombre)')}</div>
       <div class="informe-card-meta">
-        ${inf._pendiente ? '<span class="informe-card-pendiente" title="Todavía no se confirma que llegó al servidor — puede que no se vea en otros dispositivos hasta que este termine de subir">⏳ Subiendo…</span>' : `${(inf.otNums || []).length} actividad(es)`}
+        ${inf._pendiente ? '<span class="informe-card-pendiente" title="Todavía no se confirma que se guardó en el servidor — puede que no se vea en otros dispositivos hasta que termine">⏳ Guardando en el servidor…</span>' : `${(inf.otNums || []).length} actividad(es)`}
       </div>
+      <button type="button" class="btn-accion-informe" data-previewinforme="${inf.id}" title="Vista previa del Word">👁</button>
+      <button type="button" class="btn-accion-informe" data-wordinforme="${inf.id}" title="Rellenar Word">⬇</button>
+      <button type="button" class="btn-accion-informe" data-pdfinforme="${inf.id}" title="PDF (borrador)">📄</button>
       <button type="button" class="btn-borrar-informe" data-borrarinforme="${inf.id}" title="Eliminar informe">🗑</button>
       <span class="informe-card-flecha">›</span>
     </div>`).join('');
@@ -806,6 +816,29 @@ function renderVistaInformes() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       borrarInforme(btn.dataset.borrarinforme);
+    });
+  });
+  // Generar el Word/PDF de un informe directo desde la tarjeta de la lista,
+  // sin tener que entrar primero al detalle — misma lógica que los botones
+  // de la pantalla de detalle, solo que reciben el informe puntual de esta
+  // fila en vez de depender de state.informeActivo.
+  const accionesInforme = {
+    previewinforme: { fn: abrirVistaPreviaWord, iconoOcupado: '⏳', errorTxt: 'No se pudo generar la vista previa' },
+    wordinforme: { fn: generateInformeWordReal, iconoOcupado: '⏳', errorTxt: 'No se pudo generar el Word' },
+    pdfinforme: { fn: generateInformePdf, iconoOcupado: '⏳', errorTxt: 'No se pudo generar el PDF' },
+  };
+  Object.entries(accionesInforme).forEach(([dataAttr, { fn, iconoOcupado, errorTxt }]) => {
+    wrap.querySelectorAll(`[data-${dataAttr}]`).forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const inf = state.informes.find((i) => i.id === btn.dataset[dataAttr]);
+        if (!inf) return;
+        const iconoOriginal = btn.textContent;
+        btn.disabled = true; btn.textContent = iconoOcupado;
+        try { await fn(inf); }
+        catch (err) { console.error(err); showToast(err.message || errorTxt); }
+        btn.disabled = false; btn.textContent = iconoOriginal;
+      });
     });
   });
 }
@@ -843,7 +876,7 @@ function ensureVistaInformeDetalle() {
     <div class="informes-header">
       <button type="button" class="btn-back" id="btnVolverDeDetalleInforme" title="Volver a Informes">${ICON_BACK}</button>
       <h2 id="detalleInformeNombre">—</h2>
-      <span id="detalleInformePendiente" class="informe-card-pendiente" style="display:none; font-size:11px;" title="Todavía no se confirma que este informe llegó al servidor — puede que no se vea en otros dispositivos hasta que termine de subir">⏳ Subiendo…</span>
+      <span id="detalleInformePendiente" class="informe-card-pendiente" style="display:none; font-size:11px;" title="Todavía no se confirma que este informe se guardó en el servidor — puede que no se vea en otros dispositivos hasta que termine">⏳ Guardando en el servidor…</span>
       <button type="button" class="btn-borrar-informe" id="btnBorrarInformeDetalle" title="Eliminar informe" style="font-size:18px;">🗑</button>
     </div>
 
@@ -932,19 +965,19 @@ function ensureVistaInformeDetalle() {
     const file = e.target.files[0];
     if (!file) return;
     mostrarPreviewLocalPendiente('detallePortadaPreviewWrap', file, false);
-    subirArchivoInforme(file, 'portadaFotoUrl', renderDetallePortadaPreview);
+    subirArchivoInforme(file, 'portadaFotoUrl', renderDetallePortadaPreview, 'detallePortadaPreviewWrap');
   });
   document.getElementById('inputDistribPoblacion').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     mostrarPreviewLocalPendiente('detalleDistribPreviewWrap', file, false);
-    subirArchivoInforme(file, 'distribucionPoblacionUrl', renderDetalleDistribPreview);
+    subirArchivoInforme(file, 'distribucionPoblacionUrl', renderDetalleDistribPreview, 'detalleDistribPreviewWrap');
   });
   document.getElementById('inputEncargadoFirma').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     mostrarPreviewLocalPendiente('detalleFirmaPreviewWrap', file, true);
-    subirArchivoInforme(file, 'encargadoFirmaUrl', renderDetalleFirmaPreview);
+    subirArchivoInforme(file, 'encargadoFirmaUrl', renderDetalleFirmaPreview, 'detalleFirmaPreviewWrap');
   });
   document.getElementById('inputAnexo').addEventListener('change', (e) => subirAnexoInforme(e.target.files[0]));
 
@@ -1021,8 +1054,10 @@ function renderAnexosLista() {
       <button type="button" class="btn-x-emergente-mini" data-quitaranexo="${i}">✕</button>
     </div>`).join('');
   const filasPendientes = anexosPendientes.map((p) => `
-    <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); opacity:.6;">
-      <span style="flex:1; font-size:12.5px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">⏳ Subiendo ${escBit(p.nombre)}…</span>
+    <div style="padding:6px 0; border-bottom:1px solid var(--line);">
+      <span style="font-size:12.5px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escBit(p.nombre)}</span>
+      <div class="subida-progreso-wrap"><div class="subida-progreso-barra" style="width:${p.pct || 0}%"></div></div>
+      <p class="subida-progreso-texto">Subiendo… ${p.pct || 0}%</p>
     </div>`).join('');
   wrap.innerHTML = (filasGuardadas + filasPendientes) || '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin anexos todavía.</p>';
   wrap.querySelectorAll('[data-quitaranexo]').forEach((btn) => {
@@ -1093,30 +1128,76 @@ function mostrarPreviewLocalPendiente(wrapId, file, esImagenChica) {
   const estiloImg = esImagenChica
     ? 'max-width:180px; max-height:80px; background:#fff; border-radius:8px; display:block; padding:4px; opacity:.55;'
     : 'max-width:220px; border-radius:8px; display:block; opacity:.55;';
-  wrap.innerHTML = file.type.startsWith('image/')
-    ? `<img src="${blobUrl}" style="${estiloImg}">`
-    : '';
-  wrap.innerHTML += `<p style="font-size:11px; color:var(--brand); margin:4px 0 0;">⏳ Subiendo ${escBit(file.name)}…</p>`;
+  const imgHtml = file.type.startsWith('image/') ? `<img src="${blobUrl}" style="${estiloImg}">` : '';
+  wrap.innerHTML = `${imgHtml}
+    <div class="subida-progreso-wrap"><div class="subida-progreso-barra" style="width:0%"></div></div>
+    <p class="subida-progreso-texto">Subiendo ${escBit(file.name)}… 0%</p>`;
+}
+
+function actualizarProgresoSubida(wrapId, pct, nombreArchivo) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const barra = wrap.querySelector('.subida-progreso-barra');
+  const texto = wrap.querySelector('.subida-progreso-texto');
+  if (barra) barra.style.width = pct + '%';
+  if (texto) texto.textContent = `Subiendo ${escBit(nombreArchivo)}… ${pct}%`;
+}
+
+// Las fotos que llegan directo de la cámara del celular pueden pesar varios
+// MB — con mala señal eso es justo lo que hace que una subida se sienta
+// eterna. Se comprimen a un tamaño razonable (máximo 1600px de lado, JPEG
+// calidad 82%) antes de subir; si ya es chica o no es una imagen, se sube tal
+// cual — esto NO afecta a la foto que se incrusta en el Word (esa se prepara
+// aparte, a partir de la URL ya subida, en prepararFotoParaWord).
+async function comprimirImagenParaSubir(file) {
+  if (!file.type.startsWith('image/') || file.size < 700 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxDim = 1600;
+    const escala = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const outW = Math.round(bitmap.width * escala);
+    const outH = Math.round(bitmap.height * escala);
+    const canvas = document.createElement('canvas');
+    canvas.width = outW; canvas.height = outH;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, outW, outH);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch (e) {
+    console.error('No se pudo comprimir la imagen, se sube tal cual:', e);
+    return file;
+  }
 }
 
 // Sube un archivo a paradas/{PARADA_ID}/informes/{id}/{pathSufijo} y devuelve
 // su URL final. Lanza si falla — cada llamador decide cómo reaccionar.
-async function subirArchivoAStorage(file, pathSufijo) {
+// onProgreso(pct) se llama en vivo con el % real subido (bytesTransferred /
+// totalBytes), para poder mostrar una barra en vez de un ícono fijo.
+async function subirArchivoAStorage(file, pathSufijo, onProgreso) {
   subidasInformeEnCurso++;
   try {
+    const archivo = await comprimirImagenParaSubir(file);
     const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/${pathSufijo}`;
     const ref = firebase.storage().ref(path);
-    await ref.put(file);
+    const task = ref.put(archivo);
+    if (onProgreso) {
+      task.on('state_changed', (snap) => {
+        onProgreso(snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0);
+      });
+    }
+    await task;
     return await ref.getDownloadURL();
   } finally {
     subidasInformeEnCurso--;
   }
 }
 
-async function subirArchivoInforme(file, campo, callbackRender) {
+async function subirArchivoInforme(file, campo, callbackRender, wrapId) {
   if (!file || !state.informeActivo) return;
   try {
-    const url = await subirArchivoAStorage(file, `${campo}_${Date.now()}_${file.name}`);
+    const url = await subirArchivoAStorage(file, `${campo}_${Date.now()}_${file.name}`, (pct) => {
+      if (wrapId) actualizarProgresoSubida(wrapId, pct, file.name);
+    });
     await guardarCampoInformeActivo(campo, url);
     showToast('Archivo guardado ✓');
   } catch (e) {
@@ -1130,11 +1211,14 @@ async function subirArchivoInforme(file, campo, callbackRender) {
 
 async function subirAnexoInforme(file) {
   if (!file || !state.informeActivo) return;
-  const pendiente = { tempId: Date.now() + '_' + file.name, nombre: file.name };
+  const pendiente = { tempId: Date.now() + '_' + file.name, nombre: file.name, pct: 0 };
   anexosPendientes.push(pendiente);
   renderAnexosLista();
   try {
-    const url = await subirArchivoAStorage(file, `anexos/${Date.now()}_${file.name}`);
+    const url = await subirArchivoAStorage(file, `anexos/${Date.now()}_${file.name}`, (pct) => {
+      pendiente.pct = pct;
+      renderAnexosLista();
+    });
     const anexos = (state.informeActivo.anexos || []).concat([{ nombre: file.name, url, tipo: file.type }]);
     await informesCollection().doc(state.informeActivo.id).update({ anexos });
     state.informeActivo.anexos = anexos;
@@ -1190,9 +1274,14 @@ async function guardarPreparativosInforme() {
     // o una recién elegida (con .file, todavía sin subir) — las dos tienen
     // que terminar en la lista final, si no, guardar de nuevo borraba las
     // fotos de preparativos que ya estaban.
+    const nuevasFotos = preparativosFotoRows.filter((r) => r.file).length;
+    let subidas = 0;
     for (const row of preparativosFotoRows) {
       if (row.file) {
-        const url = await subirArchivoAStorage(row.file, `preparativos/${Date.now()}_${row.file.name}`);
+        const url = await subirArchivoAStorage(row.file, `preparativos/${Date.now()}_${row.file.name}`, (pct) => {
+          btn.textContent = `Guardando foto ${subidas + 1}/${nuevasFotos}… ${pct}%`;
+        });
+        subidas++;
         fotos.push({ url, descripcion: row.descripcion || '' });
       } else if (row.previewUrl) {
         fotos.push({ url: row.previewUrl, descripcion: row.descripcion || '' });
