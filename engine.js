@@ -740,13 +740,19 @@ state.informes = [];
 let informePendingOts = [];
 
 function listenInformes() {
-  informesCollection().onSnapshot((snap) => {
+  // includeMetadataChanges + doc.metadata.hasPendingWrites: un informe creado
+  // con mala señal puede quedar guardado SOLO en este dispositivo (Firestore
+  // lo muestra igual, optimista, antes de confirmar con el servidor) — sin
+  // esto no había forma de distinguir "ya está en la nube" de "todavía no
+  // sale de este celular/computador", que es justo lo que explica ver
+  // informes distintos en cada dispositivo.
+  informesCollection().onSnapshot({ includeMetadataChanges: true }, (snap) => {
     state.informes = [];
-    snap.forEach((doc) => state.informes.push({ id: doc.id, ...doc.data() }));
+    snap.forEach((doc) => state.informes.push({ id: doc.id, ...doc.data(), _pendiente: doc.metadata.hasPendingWrites }));
     if (document.getElementById('view-informes')) renderVistaInformes();
     if (state.informeActivo) {
       const actualizado = state.informes.find((i) => i.id === state.informeActivo.id);
-      if (actualizado) state.informeActivo = actualizado;
+      if (actualizado) { state.informeActivo = actualizado; actualizarBadgePendienteInforme(); }
     }
   }, (err) => console.error('informes error:', err));
 }
@@ -786,8 +792,10 @@ function renderVistaInformes() {
   }
   wrap.innerHTML = state.informes.map((inf) => `
     <div class="informe-card-grande" data-abririnforme="${inf.id}">
-      <div class="informe-card-nombre">📝 ${escBit(inf.nombre)}</div>
-      <div class="informe-card-meta">${(inf.otNums || []).length} actividad(es)</div>
+      <div class="informe-card-nombre">📝 ${escBit(inf.nombre || '(sin nombre)')}</div>
+      <div class="informe-card-meta">
+        ${inf._pendiente ? '<span class="informe-card-pendiente" title="Todavía no se confirma que llegó al servidor — puede que no se vea en otros dispositivos hasta que este termine de subir">⏳ Subiendo…</span>' : `${(inf.otNums || []).length} actividad(es)`}
+      </div>
       <button type="button" class="btn-borrar-informe" data-borrarinforme="${inf.id}" title="Eliminar informe">🗑</button>
       <span class="informe-card-flecha">›</span>
     </div>`).join('');
@@ -835,6 +843,7 @@ function ensureVistaInformeDetalle() {
     <div class="informes-header">
       <button type="button" class="btn-back" id="btnVolverDeDetalleInforme" title="Volver a Informes">${ICON_BACK}</button>
       <h2 id="detalleInformeNombre">—</h2>
+      <span id="detalleInformePendiente" class="informe-card-pendiente" style="display:none; font-size:11px;" title="Todavía no se confirma que este informe llegó al servidor — puede que no se vea en otros dispositivos hasta que termine de subir">⏳ Subiendo…</span>
       <button type="button" class="btn-borrar-informe" id="btnBorrarInformeDetalle" title="Eliminar informe" style="font-size:18px;">🗑</button>
     </div>
 
@@ -1201,13 +1210,23 @@ async function guardarPreparativosInforme() {
   btn.disabled = false; btn.textContent = 'Guardar preparativos';
 }
 
+// Actualiza el aviso "⏳ Subiendo…" del detalle según si este informe todavía
+// no se confirma con el servidor (doc.metadata.hasPendingWrites) — se llama
+// tanto al abrir el informe como cada vez que llega una actualización en vivo.
+function actualizarBadgePendienteInforme() {
+  const badge = document.getElementById('detalleInformePendiente');
+  if (!badge || !state.informeActivo) return;
+  badge.style.display = state.informeActivo._pendiente ? '' : 'none';
+}
+
 function abrirInformeDetalle(id) {
   const inf = state.informes.find((i) => i.id === id);
   if (!inf) return;
   state.informeActivo = inf;
   ensureVistaInformeDetalle();
+  actualizarBadgePendienteInforme();
 
-  document.getElementById('detalleInformeNombre').textContent = inf.nombre;
+  document.getElementById('detalleInformeNombre').textContent = inf.nombre || '(sin nombre)';
   document.getElementById('inputObjetivoPrincipal').value = inf.objetivoPrincipal || '';
   document.getElementById('inputAdminCentinela').value = inf.adminCentinela || '';
   document.getElementById('inputAdminSemiva').value = inf.adminSemiva || '';

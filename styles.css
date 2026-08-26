@@ -729,6 +729,7 @@ input[type=range]::-webkit-slider-thumb{
 }
 .informe-card-grande .informe-card-nombre{ flex:1; font-size:13.5px; font-weight:700; color:var(--ink); }
 .informe-card-meta{ font-size:11.5px; color:var(--ink-dim); flex:none; }
+.informe-card-pendiente{ color:#C08A1E; font-weight:700; }
 .informe-card-flecha{ font-size:20px; color:var(--ink-dim); flex:none; }
 .btn-borrar-informe{
   flex:none; background:none; border:none; color:var(--ink-dim); font-size:15px;
