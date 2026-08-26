@@ -44,11 +44,12 @@ function initFirebase() {
     state.db = firebase.firestore();
     // Muchas redes de faena/oficina (proxy, firewall, antivirus corporativo)
     // bloquean o cortan la conexión en tiempo real (streaming) que Firestore
-    // usa por defecto — las escrituras quedan "pendientes" para siempre sin
-    // ningún error visible, aunque el resto de la app funcione. Con esto,
-    // Firestore prueba esa conexión y si no funciona bien, cambia sola a
-    // long-polling (peticiones normales de HTTP, que sí pasan esos filtros).
-    try { state.db.settings({ experimentalAutoDetectLongPolling: true }); } catch (e) {}
+    // usa por defecto — las escrituras quedan "pendientes" para siempre
+    // (unavailable) sin ningún error visible, aunque el resto de la app
+    // funcione. La auto-detección no bastó en terreno, así que se fuerza
+    // directo a long-polling (peticiones HTTP normales, que sí pasan esos
+    // filtros) en vez de dejarlo a que el navegador decida solo.
+    try { state.db.settings({ experimentalForceLongPolling: true, merge: true }); } catch (e) {}
     try { state.db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
     listenLive();
     listenComponentes();
