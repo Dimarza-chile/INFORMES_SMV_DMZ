@@ -804,7 +804,7 @@ function renderVistaInformes() {
         ${inf._pendiente ? '<span class="informe-card-pendiente" title="Todavía no se confirma que se guardó en el servidor — puede que no se vea en otros dispositivos hasta que termine">⏳ Guardando en el servidor…</span>' : `${(inf.otNums || []).length} actividad(es)`}
       </div>
       <button type="button" class="btn-accion-informe" data-previewinforme="${inf.id}" title="Vista previa del Word">👁</button>
-      <button type="button" class="btn-accion-informe" data-wordinforme="${inf.id}" title="Rellenar Word">⬇</button>
+      <button type="button" class="btn-accion-informe" data-wordinforme="${inf.id}" title="Descargar Word">⬇</button>
       <button type="button" class="btn-accion-informe" data-pdfinforme="${inf.id}" title="PDF (borrador)">📄</button>
       <button type="button" class="btn-borrar-informe" data-borrarinforme="${inf.id}" title="Eliminar informe">🗑</button>
       <span class="informe-card-flecha">›</span>
@@ -944,7 +944,7 @@ function ensureVistaInformeDetalle() {
     <div class="informe-card-acciones" style="margin-top:6px; margin-bottom:24px;">
       <a href="#" target="_blank" rel="noopener" class="btn-mini" id="linkAbrirWordInforme" style="display:none;">Abrir Word</a>
       <button type="button" class="btn-mini" id="btnVistaPreviaWordInforme">👁 Vista previa</button>
-      <button type="button" class="btn-mini btn-mini-primary" id="btnRellenarWordInforme">⬇ Rellenar Word</button>
+      <button type="button" class="btn-mini btn-mini-primary" id="btnRellenarWordInforme">⬇ Descargar Word</button>
       <button type="button" class="btn-mini" id="btnGenerarPdfInforme">⬇ PDF (borrador)</button>
     </div>
   `;
@@ -1362,25 +1362,30 @@ function abrirModalInforme() {
   document.getElementById('informeBackdrop').classList.add('open');
 }
 
-async function guardarInformeAdmin() {
+function guardarInformeAdmin() {
   const numero = document.getElementById('informeNumero').value.trim();
   const tituloGeneral = document.getElementById('informeTituloGeneral').value.trim();
   if (!numero) { showToast('Escribe el N° de informe'); return; }
   if (!tituloGeneral) { showToast('Escribe el título del trabajo'); return; }
   if (!informePendingOts.length) { showToast('Elige al menos una actividad'); return; }
+  if (state.informes.some((i) => i.numero === numero)) {
+    showToast(`Ya existe un informe con el N° ${numero} — revisa la lista antes de crear otro`);
+    return;
+  }
   const codigo = `IT-MCEN-${numero}-SUL`;
   const nombre = `${codigo} — ${tituloGeneral}`;
-  const btn = document.getElementById('informeSave');
-  btn.disabled = true; btn.textContent = 'Guardando…';
-  try {
-    await informesCollection().add({ nombre, numero, tituloGeneral, otNums: informePendingOts, createdAt: Date.now() });
-    showToast('Informe guardado ✓');
-    document.getElementById('informeBackdrop').classList.remove('open');
-  } catch (e) {
+  // No se espera la confirmación del servidor antes de cerrar la ventana:
+  // con mala señal esa confirmación puede tardar mucho, y el botón se sentía
+  // pegado para siempre sin ninguna señal de que sí funcionó. El informe
+  // aparece de una en la lista (con el aviso "Guardando en el servidor..."
+  // si todavía no se confirma) gracias a que state.informes ya se actualiza
+  // al instante con la escritura optimista local de Firestore.
+  informesCollection().add({ nombre, numero, tituloGeneral, otNums: informePendingOts, createdAt: Date.now() }).catch((e) => {
     console.error(e);
     showToast('No se pudo guardar el informe — revisa tu conexión');
-  }
-  btn.disabled = false; btn.textContent = 'Guardar informe';
+  });
+  showToast('Informe creado ✓');
+  document.getElementById('informeBackdrop').classList.remove('open');
 }
 
 // Arma el informe completo en PDF a partir de lo que ya se cargó en la app (bitácora
