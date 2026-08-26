@@ -1,4 +1,4 @@
-const CACHE_NAME = 'curva-s-v6';
+const CACHE_NAME = 'curva-s-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -38,7 +38,12 @@ self.addEventListener('fetch', (event) => {
     return; // no interceptar Firebase ni CDNs externos (jsDelivr ya maneja su propio cache)
   }
   event.respondWith(
-    fetch(event.request)
+    // cache:'reload' obliga a saltarse el cache HTTP normal del navegador y
+    // preguntarle de verdad al servidor — sin esto, "network-first" podia
+    // terminar sirviendo igual una copia vieja desde el disco (GitHub Pages
+    // manda cabeceras de cache), y una actualizacion nueva no se notaba
+    // hasta quien sabe cuando.
+    fetch(event.request, { cache: 'reload' })
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));

@@ -997,15 +997,25 @@ function renderDetalleDistribPreview() {
   wrap.innerHTML = url ? `<a href="${url}" target="_blank" rel="noopener" class="btn-mini">Ver archivo cargado</a>` : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin archivo todavía.</p>';
 }
 
+// Anexos en camino (elegidos pero todavía subiéndose a Storage) — se muestran
+// de una vez en la lista, igual que la vista previa local de portada/firma,
+// para que subir un anexo con mala señal no se sienta como que "no pasó nada".
+let anexosPendientes = [];
+
 function renderAnexosLista() {
   const wrap = document.getElementById('anexosListWrap');
   if (!wrap || !state.informeActivo) return;
   const anexos = state.informeActivo.anexos || [];
-  wrap.innerHTML = anexos.length ? anexos.map((a, i) => `
+  const filasGuardadas = anexos.map((a, i) => `
     <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line);">
       <a href="${a.url}" target="_blank" rel="noopener" style="flex:1; font-size:12.5px; color:var(--brand); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escBit(a.nombre)}</a>
       <button type="button" class="btn-x-emergente-mini" data-quitaranexo="${i}">✕</button>
-    </div>`).join('') : '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin anexos todavía.</p>';
+    </div>`).join('');
+  const filasPendientes = anexosPendientes.map((p) => `
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); opacity:.6;">
+      <span style="flex:1; font-size:12.5px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">⏳ Subiendo ${escBit(p.nombre)}…</span>
+    </div>`).join('');
+  wrap.innerHTML = (filasGuardadas + filasPendientes) || '<p style="font-size:11.5px; color:var(--ink-dim); margin:0;">Sin anexos todavía.</p>';
   wrap.querySelectorAll('[data-quitaranexo]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const anexos = (state.informeActivo.anexos || []).slice();
@@ -1089,6 +1099,9 @@ async function subirArchivoInforme(file, campo, callbackRender) {
 
 async function subirAnexoInforme(file) {
   if (!file || !state.informeActivo) return;
+  const pendiente = { tempId: Date.now() + '_' + file.name, nombre: file.name };
+  anexosPendientes.push(pendiente);
+  renderAnexosLista();
   try {
     const storage = firebase.storage();
     const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/anexos/${Date.now()}_${file.name}`;
@@ -1098,12 +1111,13 @@ async function subirAnexoInforme(file) {
     const anexos = (state.informeActivo.anexos || []).concat([{ nombre: file.name, url, tipo: file.type }]);
     await informesCollection().doc(state.informeActivo.id).update({ anexos });
     state.informeActivo.anexos = anexos;
-    renderAnexosLista();
     showToast('Anexo agregado ✓');
   } catch (e) {
     console.error(e);
-    showToast('No se pudo subir el anexo — revisa tu conexión');
+    showToast('No se pudo subir el anexo — revisa tu conexión, e inténtalo de nuevo');
   }
+  anexosPendientes = anexosPendientes.filter((p) => p.tempId !== pendiente.tempId);
+  renderAnexosLista();
 }
 
 let preparativosFotoRows = [];
@@ -1181,6 +1195,7 @@ function abrirInformeDetalle(id) {
   preparativosFotoRows = (inf.preparativosFotos || []).map((f) => ({ file: null, previewUrl: f.url, descripcion: f.descripcion }));
   renderPreparativosFotoRows();
   renderDetalleFirmaPreview();
+  anexosPendientes = [];
 
   const linkWord = document.getElementById('linkAbrirWordInforme');
   if (inf.url) { linkWord.href = inf.url; linkWord.style.display = ''; } else { linkWord.style.display = 'none'; }
