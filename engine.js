@@ -1058,11 +1058,25 @@ async function guardarCampoInformeActivo(campo, valor) {
   }
 }
 
-// Antes de que la foto/firma termine de subirse (puede demorar harto con
-// mala señal en terreno), se muestra de una vez una vista previa local del
-// archivo elegido — así queda claro que la selección sí funcionó, en vez de
-// dejar el cuadro en "Sin foto todavía" mientras la subida real avanza en
-// segundo plano.
+// ============================================================
+// Subida de archivos de un informe (foto de portada, firma, distribución de
+// población, anexos, fotos de preparativos) a Firebase Storage.
+//
+// Con mala señal en terreno una subida puede demorar bastante o fallar del
+// todo, así que TODOS los casos siguen el mismo patrón:
+//   1. Se muestra de una vez una vista previa local (no depende de la red),
+//      para que elegir el archivo se sienta como que sí funcionó.
+//   2. Mientras haya alguna subida real en curso, se avisa antes de cerrar
+//      o refrescar la pestaña — si no, se pierde a medio camino sin aviso.
+//   3. Si falla, se avisa con un mensaje claro y se vuelve a mostrar lo que
+//      de verdad quedó guardado (nunca se deja una vista previa engañosa).
+// ============================================================
+
+let subidasInformeEnCurso = 0;
+window.addEventListener('beforeunload', (e) => {
+  if (subidasInformeEnCurso > 0) { e.preventDefault(); e.returnValue = ''; }
+});
+
 function mostrarPreviewLocalPendiente(wrapId, file, esImagenChica) {
   const wrap = document.getElementById(wrapId);
   if (!wrap) return;
@@ -1076,37 +1090,33 @@ function mostrarPreviewLocalPendiente(wrapId, file, esImagenChica) {
   wrap.innerHTML += `<p style="font-size:11px; color:var(--brand); margin:4px 0 0;">⏳ Subiendo ${escBit(file.name)}…</p>`;
 }
 
-// Mientras haya alguna subida real en curso (foto/firma/anexo), se avisa si
-// se intenta cerrar o refrescar la pestaña — con mala señal una subida puede
-// demorar bastante, y si se refresca antes de que termine, se pierde entera
-// aunque la vista previa local ya la mostraba como si hubiera funcionado.
-let subidasInformeEnCurso = 0;
-window.addEventListener('beforeunload', (e) => {
-  if (subidasInformeEnCurso > 0) { e.preventDefault(); e.returnValue = ''; }
-});
+// Sube un archivo a paradas/{PARADA_ID}/informes/{id}/{pathSufijo} y devuelve
+// su URL final. Lanza si falla — cada llamador decide cómo reaccionar.
+async function subirArchivoAStorage(file, pathSufijo) {
+  subidasInformeEnCurso++;
+  try {
+    const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/${pathSufijo}`;
+    const ref = firebase.storage().ref(path);
+    await ref.put(file);
+    return await ref.getDownloadURL();
+  } finally {
+    subidasInformeEnCurso--;
+  }
+}
 
 async function subirArchivoInforme(file, campo, callbackRender) {
   if (!file || !state.informeActivo) return;
-  subidasInformeEnCurso++;
   try {
-    const storage = firebase.storage();
-    const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/${campo}_${Date.now()}_${file.name}`;
-    const ref = storage.ref(path);
-    await ref.put(file);
-    const url = await ref.getDownloadURL();
+    const url = await subirArchivoAStorage(file, `${campo}_${Date.now()}_${file.name}`);
     await guardarCampoInformeActivo(campo, url);
-    if (callbackRender) callbackRender();
     showToast('Archivo guardado ✓');
   } catch (e) {
     console.error(e);
     showToast('No se pudo subir el archivo — revisa tu conexión, e inténtalo de nuevo');
-    // Se descarta la vista previa "Subiendo…" y se vuelve a mostrar lo que
-    // de verdad quedó guardado — para no dejar en pantalla algo que en
-    // realidad nunca llegó a subirse.
-    if (callbackRender) callbackRender();
-  } finally {
-    subidasInformeEnCurso--;
   }
+  // Se vuelve a mostrar lo que de verdad quedó guardado, haya funcionado o
+  // no — así nunca queda en pantalla la vista previa "Subiendo…" colgada.
+  if (callbackRender) callbackRender();
 }
 
 async function subirAnexoInforme(file) {
@@ -1114,13 +1124,8 @@ async function subirAnexoInforme(file) {
   const pendiente = { tempId: Date.now() + '_' + file.name, nombre: file.name };
   anexosPendientes.push(pendiente);
   renderAnexosLista();
-  subidasInformeEnCurso++;
   try {
-    const storage = firebase.storage();
-    const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/anexos/${Date.now()}_${file.name}`;
-    const ref = storage.ref(path);
-    await ref.put(file);
-    const url = await ref.getDownloadURL();
+    const url = await subirArchivoAStorage(file, `anexos/${Date.now()}_${file.name}`);
     const anexos = (state.informeActivo.anexos || []).concat([{ nombre: file.name, url, tipo: file.type }]);
     await informesCollection().doc(state.informeActivo.id).update({ anexos });
     state.informeActivo.anexos = anexos;
@@ -1128,8 +1133,6 @@ async function subirAnexoInforme(file) {
   } catch (e) {
     console.error(e);
     showToast('No se pudo subir el anexo — revisa tu conexión, e inténtalo de nuevo');
-  } finally {
-    subidasInformeEnCurso--;
   }
   anexosPendientes = anexosPendientes.filter((p) => p.tempId !== pendiente.tempId);
   renderAnexosLista();
@@ -1173,14 +1176,18 @@ async function guardarPreparativosInforme() {
   const btn = document.getElementById('btnGuardarPreparativos');
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    const storage = firebase.storage();
     const fotos = [];
-    for (const row of preparativosFotoRows.filter((r) => r.file)) {
-      const path = `paradas/${PARADA_ID}/informes/${state.informeActivo.id}/preparativos/${Date.now()}_${row.file.name}`;
-      const ref = storage.ref(path);
-      await ref.put(row.file);
-      const url = await ref.getDownloadURL();
-      fotos.push({ url, descripcion: row.descripcion || '' });
+    // Cada fila es o una foto ya guardada antes (sin .file, solo previewUrl)
+    // o una recién elegida (con .file, todavía sin subir) — las dos tienen
+    // que terminar en la lista final, si no, guardar de nuevo borraba las
+    // fotos de preparativos que ya estaban.
+    for (const row of preparativosFotoRows) {
+      if (row.file) {
+        const url = await subirArchivoAStorage(row.file, `preparativos/${Date.now()}_${row.file.name}`);
+        fotos.push({ url, descripcion: row.descripcion || '' });
+      } else if (row.previewUrl) {
+        fotos.push({ url: row.previewUrl, descripcion: row.descripcion || '' });
+      }
     }
     const bullets = (document.getElementById('inputPreparativosTexto').value || '').split('\n').map((s) => s.trim()).filter(Boolean);
     await informesCollection().doc(state.informeActivo.id).update({ preparativosTexto: bullets, preparativosFotos: fotos });
