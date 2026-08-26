@@ -5200,6 +5200,24 @@ function safeInit(fn, label) {
   try { fn(); } catch (e) { console.error('Error iniciando [' + label + ']:', e); }
 }
 
+// Registra el service worker y, si detecta que una version nueva tomo el
+// control (activate + clients.claim en sw.js), recarga la pagina UNA vez
+// sola. Sin esto, un usuario podia quedarse viendo una version vieja de la
+// app hasta que se le ocurriera hacer un refresco forzado a mano — ahora
+// la actualizacion se nota sola, sin pasos manuales.
+function iniciarServiceWorkerAutoActualizable() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./sw.js')
+    .then((reg) => reg.update().catch(() => {}))
+    .catch(console.error);
+  let yaRecargo = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (yaRecargo) return;
+    yaRecargo = true;
+    window.location.reload();
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
   safeInit(() => {
@@ -5223,7 +5241,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.addEventListener('online', () => setConn(true));
     window.addEventListener('offline', () => setConn(false));
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.error);
+    iniciarServiceWorkerAutoActualizable();
   }, 'principal');
 
   // Panel "Mantenciones": por ahora esta app solo trabaja con una mantención

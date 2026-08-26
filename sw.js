@@ -1,4 +1,4 @@
-const CACHE_NAME = 'curva-s-v8';
+const CACHE_NAME = 'curva-s-v9';
 const ASSETS = [
   './',
   './index.html',
